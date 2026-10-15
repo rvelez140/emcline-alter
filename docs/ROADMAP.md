@@ -65,6 +65,8 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] C1. API para apps nativas: tokens de sesión con refresh, CORS controlado, `/.well-known/rvmail` (descubrimiento del servidor)
 - [x] C2. App de escritorio y móvil con **Tauri 2** (Rust): Windows, macOS, Linux, Android, iOS; bandeja del sistema, `mailto:`, notificaciones nativas — escritorio listo (Linux probado; Windows/macOS por CI). Móvil: falta `tauri android/ios init` y push con la app cerrada (FCM/APNs)
 - [ ] C3. Cliente web reescrito en Rust/WASM (Leptos) por pantallas, compartiendo tipos con el backend; la PWA React se retira al completar la paridad
+  - [x] Tipos compartidos (`crates/rvmail-types`), login, bandeja unificada/carpetas, búsqueda, lectura segura, tiempo real, móvil — servido en `/next/`
+  - [ ] Redactar/responder, cuentas, configuración (IA, servidor de correo, SSO), avisos
 
 ## Fase 1 — Correo completo (v1)
 - [ ] Sincronización incremental real con CONDSTORE/QRESYNC y detección de borrados (EXPUNGE / VANISHED)

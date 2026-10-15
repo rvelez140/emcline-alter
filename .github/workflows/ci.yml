@@ -37,6 +37,25 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 
+  # Cliente web en Rust (Leptos → WebAssembly); la imagen Docker lo compila con trunk
+  web-rs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/web-rs
+      - run: cargo fmt --check
+      - run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo test --locked
+
   # App de escritorio (Tauri 2): proyecto Cargo aparte porque necesita WebKitGTK
   desktop:
     runs-on: ubuntu-latest

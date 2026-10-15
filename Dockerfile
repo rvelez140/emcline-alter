@@ -17,6 +17,19 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY apps/web apps/web
 RUN pnpm --filter @rvmail/web build
 
+# ---------------------------------------------------------------- cliente web en Rust (Leptos/WASM, fase C3)
+# Se sirve en /next/ junto a la PWA. WebAssembly es igual en todas las arquitecturas.
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS next-build
+RUN rustup target add wasm32-unknown-unknown
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
+    cargo install trunk --version 0.21.14 --locked
+WORKDIR /src
+COPY crates/rvmail-types crates/rvmail-types
+COPY apps/web-rs apps/web-rs
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
+    --mount=type=cache,target=/src/apps/web-rs/target,id=cargo-target-wasm \
+    cd apps/web-rs && trunk build --release
+
 # ---------------------------------------------------------------- rust (compilación cruzada)
 FROM --platform=$BUILDPLATFORM rust:1-bookworm AS rust-build
 ARG TARGETARCH
@@ -57,6 +70,7 @@ ENV APP_VERSION=${APP_VERSION} \
     WORKER_HEARTBEAT_FILE=/tmp/rvmail-worker.heartbeat
 COPY --from=rust-build /rvmail /usr/local/bin/rvmail
 COPY --from=web-build /repo/apps/web/dist /app/web
+COPY --from=next-build /src/apps/web-rs/dist /app/web/next
 EXPOSE 3000
 # Por defecto comprueba la API; el servicio worker lo sobrescribe en compose
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \

@@ -63,3 +63,25 @@ cargo test && cargo clippy --all-targets -- -D warnings
 
 Cambios de esquema: nuevo archivo `crates/rvmail/migrations/<AAAAMMDDhhmmss>_<nombre>.sql`
 (`sqlx migrate add -r` o a mano). Nunca editar uno ya aplicado.
+
+## Cliente web en Rust (fase C3, en curso)
+
+`apps/web-rs` es el cliente web reescrito con **Leptos** (WebAssembly). Usa la
+misma API que la PWA React y los tipos de `crates/rvmail-types`, que también usa
+el servidor: si cambia un campo, el compilador avisa en los dos lados.
+
+- Se sirve en **`/next/`** junto a la PWA (misma sesión). Cuando tenga todas las
+  pantallas, pasará a `/` y se retirará la PWA React.
+- Hecho: inicio de sesión, bandeja unificada y por carpeta, búsqueda, paginación,
+  lectura segura (HTML saneado con `ammonia` en `<iframe sandbox>`, imágenes
+  remotas bloqueadas salvo permiso), destacar, tiempo real (SSE) y diseño móvil.
+- Pendiente: redactar/responder, cuentas, configuración (tokens de IA, servidor de
+  correo, SSO) y los avisos de la PWA.
+- Tamaño: ~1 MB de WASM (430 KB comprimido), sobre todo por el saneador HTML.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
+pnpm build:rs          # compila y copia a apps/web/dist/next (la API lo sirve)
+cd apps/web-rs && cargo test && cargo clippy --target wasm32-unknown-unknown
+```

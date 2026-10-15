@@ -50,6 +50,8 @@ crates/rvmail       Binario Rust `rvmail`: api (REST, SSE, MCP, web), worker IMA
 crates/rvmail-core  Núcleo Rust compartido (config, cifrado, modelos, eventos)
 apps/web            PWA React + Tailwind
 apps/desktop        App de escritorio/móvil (Tauri 2)
+apps/web-rs         Cliente web en Rust (Leptos/WASM), en /next/ — en curso
+crates/rvmail-types Tipos de la API compartidos por servidor y clientes
 deploy/             Caddy, aaPanel, cloud-init
 scripts/            Instalar, actualizar, respaldar, restaurar, desarrollo
 ```

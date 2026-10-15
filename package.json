@@ -12,6 +12,7 @@
     "dev:web": "pnpm --filter @rvmail/web dev",
     "desktop": "pnpm --filter @rvmail/desktop dev",
     "build": "pnpm --filter @rvmail/web build",
+    "build:rs": "cd apps/web-rs && trunk build --release && rm -rf ../web/dist/next && cp -r dist ../web/dist/next",
     "typecheck": "pnpm --filter @rvmail/web typecheck",
     "lint": "pnpm --filter @rvmail/web typecheck && prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
     "db:migrate": "cargo run -q -p rvmail -- migrate",

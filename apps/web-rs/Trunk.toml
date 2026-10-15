@@ -1,0 +1,7 @@
+# Cliente Rust servido por la API en /next/ junto a la web actual
+[build]
+public_url = "/next/"
+dist = "dist"
+# Sin scripts en línea (la CSP del servidor solo permite scripts propios)
+inject_scripts = false
+filehash = false
