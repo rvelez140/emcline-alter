@@ -1,6 +1,7 @@
 //! RV Mail — binario único: `rvmail worker`, `rvmail api`, `rvmail install`…
 
 mod api;
+mod cli;
 mod jmap;
 mod net;
 mod oauth;
@@ -34,6 +35,8 @@ enum Cmd {
         #[command(subcommand)]
         what: Health,
     },
+    #[command(flatten)]
+    Admin(cli::AdminCmd),
 }
 
 #[derive(Subcommand)]
@@ -69,6 +72,14 @@ async fn main() -> Result<()> {
     if let Cmd::Healthcheck { what } = &cli.cmd {
         std::process::exit(healthcheck(what));
     }
+    if let Cmd::Admin(cmd) = cli.cmd {
+        // Errores de administración: mensaje claro, sin trazas
+        if let Err(e) = cli::run(cmd).await {
+            cli::fail(format!("{e:#}"));
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     init_logs();
     match cli.cmd {
         Cmd::Worker => worker::run().await,
@@ -80,7 +91,7 @@ async fn main() -> Result<()> {
             tracing::info!("migraciones aplicadas");
             Ok(())
         }
-        Cmd::Healthcheck { .. } => unreachable!(),
+        Cmd::Healthcheck { .. } | Cmd::Admin(_) => unreachable!(),
     }
 }
 

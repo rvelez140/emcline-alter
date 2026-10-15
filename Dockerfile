@@ -35,6 +35,9 @@ ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+# El CLI (`rvmail install`) incluye los archivos de despliegue
+COPY docker-compose.yml .env.example ./
+COPY deploy deploy
 ARG APP_VERSION=dev
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
     --mount=type=cache,target=/src/target,id=cargo-target-$TARGETARCH \
