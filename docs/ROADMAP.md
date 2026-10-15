@@ -11,6 +11,21 @@ GreenMail en desarrollo. Trabaja en orden.
 - [x] Worker: leases, sincronización inicial de encabezados, IDLE en INBOX
 - [x] Web: login, alta de cuentas, bandeja unificada, lectura saneada, SSE
 
+## Fase 0.5 — Servidor de correo, agentes de IA e infraestructura
+- [x] `.env.example`, `.env.dev.example`, `.gitignore`, `.dockerignore` (el instalador no funcionaba sin ellos)
+- [x] Healthcheck del worker (latido) y `/api/health` sin detalles internos
+- [x] CI en GitHub Actions + imágenes multi-arquitectura (amd64/arm64) en GHCR
+- [x] Integración con el Mail Server de aaPanel: dominios, buzones, verificación DNS
+- [x] Inicio de sesión con las credenciales del buzón (alta automática de usuario y cuenta)
+- [x] Autoconfiguración de cuentas de dominios alojados
+- [x] Tokens de API con permisos (leer/borrador/enviar/organizar), por cuenta y con caducidad
+- [x] Servidor MCP (`/api/mcp`) para agentes de IA + API REST con token
+- [x] Instalador: detecta aaPanel, su Mail Server, el puerto del panel y el hostname de Postfix
+- [ ] Verificar los nombres de función del plugin `mail_sys` contra un aaPanel real (ver docs/MAILSERVER.md)
+- [ ] Soporte Podman (Quadlet) y prueba en VPS ARM
+- [ ] Asistente web de instalación (dominio, DNS, proxy) en el primer arranque
+- [ ] API para apps nativas: refresh tokens, CORS, `/.well-known/rvmail`; apps Capacitor (móvil) y Tauri (escritorio)
+
 ## Fase 1 — Correo completo (v1)
 - [ ] Sincronización incremental real con CONDSTORE/QRESYNC y detección de borrados (EXPUNGE / VANISHED)
 - [ ] Redactar: editor enriquecido (TipTap), responder, responder a todos, reenviar, CC/CCO

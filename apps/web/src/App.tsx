@@ -23,6 +23,6 @@ export function App() {
       </div>
     );
   }
-  if (!me.data) return <AuthScreen mode={setup.data?.needsSetup ? 'setup' : 'login'} />;
+  if (!me.data) return <AuthScreen mode={setup.data?.needsSetup ? 'setup' : 'login'} mailboxLogin={setup.data?.mailboxLogin} />;
   return <MailApp user={me.data} />;
 }

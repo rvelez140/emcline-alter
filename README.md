@@ -8,7 +8,9 @@ dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 - Búsqueda en español sobre todas las cuentas
 - App instalable (PWA) en iPhone, Android, Windows y Linux
 - Contraseñas de cuentas cifradas (AES-256-GCM)
-- Instalación en un comando con Docker; convive con aaPanel
+- **Servidor de correo integrado**: administra dominios y buzones del Mail Server de aaPanel del mismo VPS, con verificación DNS ([docs/MAILSERVER.md](docs/MAILSERVER.md))
+- **Agentes de IA**: servidor MCP para que Claude u otros agentes lean, redacten y envíen correo, con tokens de permisos limitados ([docs/AI-AGENT.md](docs/AI-AGENT.md))
+- Instalación en un comando con Docker (amd64 y ARM); convive con aaPanel y lo detecta solo
 
 > Estado: **v0.1 — base funcional.** Ver el plan completo en [docs/ROADMAP.md](docs/ROADMAP.md)
 > (calendario, contactos, OAuth, PGP, IA…).
@@ -32,6 +34,7 @@ pnpm dev         # http://localhost:5173
 ```
 
 Cuenta de prueba: `test1@rvmail.local` / `test1`, IMAP `localhost:3143`, SMTP `localhost:3025`, sin SSL.
+Para probar el servidor de correo integrado: `node scripts/fake-aapanel.mjs` y `MAILSERVER_PROVIDER=aapanel` en `.env.dev`.
 
 Arquitectura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Guía para Claude Code: [CLAUDE.md](CLAUDE.md)
 

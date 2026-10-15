@@ -66,6 +66,16 @@
 - Bandeja unificada por defecto; color por cuenta.
 - HTML de mensajes saneado (DOMPurify) dentro de `<iframe sandbox>`.
 
+### Servidor de correo integrado y agentes de IA
+
+- `apps/api/src/mailserver/`: contrato `MailServerProvider` con un adaptador
+  para el Mail Server de aaPanel (API firmada `request_time`/`request_token`).
+  Los buzones alojados se conectan como cuentas normales y el login acepta las
+  credenciales del buzón (verificadas por IMAP). Ver `docs/MAILSERVER.md`.
+- `apps/api/src/mcp/`: servidor MCP sin estado (Streamable HTTP, `POST /api/mcp`)
+  autenticado con tokens `rvm_…` (tabla `api_tokens`, solo hash SHA-256).
+  Comparte `MailService` con la API REST. Ver `docs/AI-AGENT.md`.
+
 ## Modelo de datos (resumen)
 
 - `users` — usuarios de la app.

@@ -17,7 +17,8 @@ identificadores, español permitido en comentarios y documentación.
 
 ## Arquitectura en una línea
 
-`navegador/PWA → web (nginx: estáticos + /api) → api (NestJS) ↔ postgres/redis ← worker (sincronización IMAP por cuenta)`
+`navegador/PWA/agente IA (MCP) → web (nginx: estáticos + /api) → api (NestJS) ↔ postgres/redis ← worker (sincronización IMAP por cuenta)`
+y opcionalmente `api → API de aaPanel (Mail Server del mismo VPS)` para administrar dominios y buzones.
 
 Detalle en `docs/ARCHITECTURE.md`. Léelo antes de cambiar límites entre servicios.
 
@@ -45,6 +46,9 @@ pnpm typecheck
 make prod-config   # valida docker-compose de producción
 ```
 
+Servidor de correo integrado en desarrollo: `node scripts/fake-aapanel.mjs` y
+`MAILSERVER_PROVIDER=aapanel` en `.env.dev`. Guías: `docs/MAILSERVER.md`, `docs/AI-AGENT.md`.
+
 Cuentas de prueba en desarrollo (GreenMail las crea solas):
 `test1@rvmail.local` / `test1`, `test2@rvmail.local` / `test2`,
 IMAP `localhost:3143`, SMTP `localhost:3025`, sin TLS.
@@ -70,6 +74,15 @@ IMAP `localhost:3143`, SMTP `localhost:3025`, sin TLS.
 8. **Instalación en un comando** debe seguir funcionando. Si agregas un servicio,
    que tenga healthcheck y volumen nombrado.
 9. Mensajes de error para el usuario en español, claros y sin trazas internas.
+10. **Siempre cliente completo.** El servidor de correo integrado
+    (`MAILSERVER_PROVIDER`, `apps/api/src/mailserver/`) es una capa extra: con
+    `none` todo debe seguir funcionando. Los buzones alojados se usan como
+    cuentas normales (`mail_accounts.source = 'mailserver'`).
+11. **Tokens de API = mínimo privilegio.** Un endpoint acepta tokens solo si
+    lleva `@RequireScopes(...)`; la lógica de correo vive en `MailService` y
+    respeta `user.token` (ámbitos y cuentas). Las herramientas MCP
+    (`apps/api/src/mcp/`) se registran con `defineTool` (no con `registerTool`
+    directo: dispara el tiempo de compilación de tsc).
 
 ## Cómo trabajar
 

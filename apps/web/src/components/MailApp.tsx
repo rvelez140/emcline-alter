@@ -7,6 +7,7 @@ import { AccountDialog } from './AccountDialog';
 import { Compose, ComposeDraft } from './Compose';
 import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
+import { SettingsDialog } from './SettingsDialog';
 import { Sidebar } from './Sidebar';
 
 export type Selection =
@@ -26,6 +27,7 @@ export function MailApp({ user }: { user: User }) {
   const [pane, setPane] = useState<Pane>('list');
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [accountDialog, setAccountDialog] = useState<{ id?: string } | null>(null);
+  const [settings, setSettings] = useState(false);
 
   const hasAccounts = (accounts.data?.length ?? 0) > 0;
 
@@ -73,6 +75,7 @@ export function MailApp({ user }: { user: User }) {
           onAddAccount={() => setAccountDialog({})}
           onEditAccount={(id) => setAccountDialog({ id })}
           onLogout={logout}
+          onSettings={() => setSettings(true)}
         />
       </aside>
 
@@ -141,6 +144,17 @@ export function MailApp({ user }: { user: User }) {
 
       {compose && (
         <Compose accounts={accounts.data ?? []} draft={compose} onClose={() => setCompose(null)} />
+      )}
+      {settings && (
+        <SettingsDialog
+          user={user}
+          accounts={accounts.data ?? []}
+          onClose={() => {
+            setSettings(false);
+            // Un buzón nuevo puede haberse agregado a las cuentas del usuario
+            void qc.invalidateQueries({ queryKey: ['accounts'] });
+          }}
+        />
       )}
       {accountDialog && (
         <AccountDialog

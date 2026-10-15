@@ -17,6 +17,7 @@ export type Account = {
   lastError: string | null;
   lastSyncAt: string | null;
   signatureHtml: string | null;
+  source: 'external' | 'mailserver';
 };
 
 export type Folder = {
@@ -56,6 +57,39 @@ export type MessageFull = MessageSummary & {
   attachments: Array<{ filename: string | null; contentType: string; size: number }>;
 };
 
+export type ApiScope = 'mail:read' | 'mail:draft' | 'mail:send' | 'mail:modify';
+
+export type ApiToken = {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: ApiScope[];
+  accountIds: string[] | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
+export type MailServerStatus = {
+  provider: 'none' | 'aapanel';
+  enabled: boolean;
+  hostname: string;
+  ok: boolean;
+  error: string | null;
+  domains?: number;
+};
+export type MailDomain = { domain: string; mailboxes: number | null; quotaGb: number | null; createdAt: string | null };
+export type Mailbox = { email: string; fullName: string; quotaGb: number | null; active: boolean; createdAt: string | null };
+export type DnsCheck = {
+  domain: string;
+  serverHost: string;
+  serverIps: string[];
+  checks: Array<{ record: string; ok: boolean; found: string[]; expected: string }>;
+};
+export type AutoConfig =
+  | { managed: false }
+  | { managed: true; imapHost: string; imapPort: number; imapSecure: boolean; smtpHost: string; smtpPort: number; smtpSecure: boolean };
+
 export type Special = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive';
 
 export class ApiError extends Error {
@@ -84,7 +118,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
-  setup: () => request<{ needsSetup: boolean; allowSignup: boolean }>('GET', '/auth/setup'),
+  setup: () => request<{ needsSetup: boolean; allowSignup: boolean; mailboxLogin: boolean }>('GET', '/auth/setup'),
   me: () => request<User>('GET', '/auth/me'),
   login: (email: string, password: string) => request<User>('POST', '/auth/login', { email, password }),
   register: (name: string, email: string, password: string) =>
@@ -116,6 +150,34 @@ export const api = {
     html: string;
     inReplyToMessageId?: string;
   }) => request<{ messageId: string }>('POST', '/send', input),
+
+  tokens: () => request<ApiToken[]>('GET', '/tokens'),
+  createToken: (input: { name: string; scopes: ApiScope[]; accountIds: string[] | null; expiresInDays: number | null }) =>
+    request<{ id: string; name: string; prefix: string; scopes: ApiScope[]; token: string }>('POST', '/tokens', input),
+  revokeToken: (id: string) => request<void>('DELETE', `/tokens/${id}`),
+
+  autoconfig: (email: string) => request<AutoConfig>('GET', `/mailserver/autoconfig?email=${encodeURIComponent(email)}`),
+  mailserver: {
+    status: () => request<MailServerStatus>('GET', '/admin/mailserver'),
+    domains: () => request<MailDomain[]>('GET', '/admin/mailserver/domains'),
+    addDomain: (domain: string) => request<{ domain: string; dns: DnsCheck }>('POST', '/admin/mailserver/domains', { domain }),
+    deleteDomain: (domain: string) => request<void>('DELETE', `/admin/mailserver/domains/${encodeURIComponent(domain)}`),
+    dns: (domain: string) => request<DnsCheck>('GET', `/admin/mailserver/domains/${encodeURIComponent(domain)}/dns`),
+    mailboxes: (domain: string) =>
+      request<Mailbox[]>('GET', `/admin/mailserver/domains/${encodeURIComponent(domain)}/mailboxes`),
+    users: () => request<Array<{ id: string; name: string; email: string }>>('GET', '/admin/mailserver/users'),
+    createMailbox: (input: {
+      email: string;
+      fullName: string;
+      password?: string;
+      quotaGb: number;
+      link: 'none' | 'me' | 'user' | 'new_user';
+      userId?: string;
+    }) => request<{ email: string; linkedUserId: string | null; password?: string }>('POST', '/admin/mailserver/mailboxes', input),
+    updateMailbox: (email: string, patch: { password?: string; fullName?: string; quotaGb?: number; active?: boolean }) =>
+      request<{ email: string }>('PATCH', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`, patch),
+    deleteMailbox: (email: string) => request<void>('DELETE', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`),
+  },
 };
 
 export function splitAddresses(s: string): string[] {

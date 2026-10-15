@@ -3,7 +3,7 @@ import { Mail } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { api } from '../api';
 
-export function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
+export function AuthScreen({ mode, mailboxLogin }: { mode: 'setup' | 'login'; mailboxLogin?: boolean }) {
   const qc = useQueryClient();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -79,6 +79,12 @@ export function AuthScreen({ mode }: { mode: 'setup' | 'login' }) {
             required
           />
         </div>
+
+        {mode === 'login' && mailboxLogin && (
+          <p className="text-xs text-slate-500">
+            ¿Tienes un buzón en este servidor? Entra con tu correo y la contraseña del buzón.
+          </p>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

@@ -72,6 +72,30 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
     }
   }
 
+  const [managed, setManaged] = useState(false);
+
+  /** Si el dominio está alojado en el servidor de correo integrado, se rellena todo solo. */
+  async function detectServer() {
+    if (editing || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) return;
+    const cfg = await api.autoconfig(f.email).catch(() => null);
+    if (!cfg?.managed) {
+      setManaged(false);
+      return;
+    }
+    setManaged(true);
+    setPreset('custom');
+    setF((s) => ({
+      ...s,
+      username: s.email,
+      imapHost: cfg.imapHost,
+      imapPort: cfg.imapPort,
+      imapSecure: cfg.imapSecure,
+      smtpHost: cfg.smtpHost,
+      smtpPort: cfg.smtpPort,
+      smtpSecure: cfg.smtpSecure,
+    }));
+  }
+
   const save = useMutation({
     mutationFn: () => {
       const { password, ...rest } = f;
@@ -132,7 +156,14 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
               <input className="input" value={f.displayName} onChange={(e) => set('displayName', e.target.value)} required />
             </Field>
             <Field label="Correo">
-              <input className="input" type="email" value={f.email} onChange={(e) => onEmail(e.target.value)} required />
+              <input
+                className="input"
+                type="email"
+                value={f.email}
+                onChange={(e) => onEmail(e.target.value)}
+                onBlur={() => void detectServer()}
+                required
+              />
             </Field>
             <Field label="Usuario">
               <input className="input" value={f.username} onChange={(e) => set('username', e.target.value)} required />
@@ -148,6 +179,13 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
               />
             </Field>
           </div>
+
+          {managed && (
+            <p className="rounded-lg bg-green-50 p-2 text-xs text-green-800 dark:bg-green-900/30 dark:text-green-200">
+              Este dominio está alojado en tu servidor de correo: la configuración se completó sola. Solo falta la
+              contraseña.
+            </p>
+          )}
 
           <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
             <legend className="label">Entrante (IMAP)</legend>

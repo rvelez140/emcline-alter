@@ -40,6 +40,12 @@ Edita `deploy/cloud-init.yaml` (repo, dominio, correo y tu clave SSH) y pégalo
 como *user data* al crear el VPS. Deja firewall (ufw), fail2ban, Docker,
 RV Mail y el respaldo diario configurados.
 
+## Servidor de correo de aaPanel en el mismo VPS
+
+Si el VPS tiene el Mail Server de aaPanel, el instalador lo detecta y RV Mail
+administra sus dominios y buzones. Pasos de aaPanel (API y lista blanca):
+[MAILSERVER.md](MAILSERVER.md). Agentes de IA: [AI-AGENT.md](AI-AGENT.md).
+
 ## Operación diaria
 
 | Tarea | Comando |

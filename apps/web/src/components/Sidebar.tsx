@@ -33,9 +33,20 @@ type Props = {
   onAddAccount: () => void;
   onEditAccount: (id: string) => void;
   onLogout: () => void;
+  onSettings: () => void;
 };
 
-export function Sidebar({ user, accounts, selection, onSelect, onCompose, onAddAccount, onEditAccount, onLogout }: Props) {
+export function Sidebar({
+  user,
+  accounts,
+  selection,
+  onSelect,
+  onCompose,
+  onAddAccount,
+  onEditAccount,
+  onLogout,
+  onSettings,
+}: Props) {
   const folders = useQuery({ queryKey: ['folders'], queryFn: api.folders, enabled: accounts.length > 0 });
   const all = folders.data ?? [];
 
@@ -86,9 +97,14 @@ export function Sidebar({ user, accounts, selection, onSelect, onCompose, onAddA
           <p className="truncate font-medium">{user.name}</p>
           <p className="truncate text-slate-500">{user.email}</p>
         </div>
-        <button className="btn-ghost" onClick={onLogout} aria-label="Cerrar sesión" title="Cerrar sesión">
-          <LogOut size={16} />
-        </button>
+        <div className="flex shrink-0">
+          <button className="btn-ghost" onClick={onSettings} aria-label="Configuración" title="Configuración">
+            <Settings size={16} />
+          </button>
+          <button className="btn-ghost" onClick={onLogout} aria-label="Cerrar sesión" title="Cerrar sesión">
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
