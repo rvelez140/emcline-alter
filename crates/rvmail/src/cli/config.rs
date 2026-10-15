@@ -33,6 +33,8 @@ pub enum ConfigCmd {
     Sso,
     /// Perfil de recursos (memoria) y límites del worker
     Resources,
+    /// Respaldos fuera del servidor (restic: Oracle Object Storage, S3…) y hora del respaldo diario
+    Backup,
 }
 
 pub async fn run(a: ConfigArgs) -> Result<()> {
@@ -111,6 +113,12 @@ pub async fn run(a: ConfigArgs) -> Result<()> {
         }
         ConfigCmd::Sso => sso_menu(ui, &mut env)?,
         ConfigCmd::Resources => resources(ui, &mut env)?,
+        ConfigCmd::Backup => {
+            offsite_menu(ui, &mut env, &dir)?;
+            // El cron y restic no necesitan reiniciar servicios
+            env.save()?;
+            return Ok(());
+        }
     }
 
     let after = env.entries();
@@ -136,7 +144,11 @@ pub async fn run(a: ConfigArgs) -> Result<()> {
 pub async fn apply(dir: &std::path::Path, env: &mut EnvFile) -> Result<()> {
     let engine = engine::Engine::detect("")?;
     info("Aplicando cambios…");
-    engine.compose(dir, &["up", "-d", "--remove-orphans"])?;
+    engine.compose(dir, &super::install::up_args(env))?;
+    if env.get_or("RVMAIL_ROLE", "primary") == "standby" {
+        ok("Cambios aplicados (respaldo: solo Postgres)");
+        return Ok(());
+    }
     if env.get_or("MAILSERVER_PROVIDER", "") == "stalwart"
         && !stalwart_setup::admin_works(env).await
     {
@@ -165,6 +177,7 @@ fn menu(ui: Ui) -> Result<ConfigCmd> {
         "Servidor de correo (aaPanel / Stalwart / ninguno)",
         "Inicio de sesión con Google, Microsoft y Yahoo",
         "Recursos (memoria, cuentas por worker)",
+        "Respaldos fuera del servidor (Oracle Object Storage / S3)",
         "Cambiar una variable",
     ]
     .iter()
@@ -176,6 +189,7 @@ fn menu(ui: Ui) -> Result<ConfigCmd> {
         2 => ConfigCmd::Mailserver,
         3 => ConfigCmd::Sso,
         4 => ConfigCmd::Resources,
+        5 => ConfigCmd::Backup,
         _ => {
             let k = ui.input("Variable", "")?;
             let v = ui.input("Valor", "")?;
@@ -236,6 +250,91 @@ fn domain(ui: Ui, env: &mut EnvFile) -> Result<()> {
         env.set("HTTP_PORT", &p);
     }
     set_profiles(env);
+    Ok(())
+}
+
+fn offsite_menu(ui: Ui, env: &mut EnvFile, dir: &std::path::Path) -> Result<()> {
+    title("Respaldos cifrados fuera del servidor (restic)");
+    let items = vec![
+        "Oracle Object Storage (API compatible con S3)".to_string(),
+        "Otro S3 (Backblaze B2, Wasabi, MinIO, AWS…)".to_string(),
+        "Desactivar".to_string(),
+    ];
+    match ui.select("Destino", &items, 0)? {
+        0 => {
+            println!("  Oracle: crea un bucket privado y una «Customer Secret Key» (Perfil → Claves secretas).");
+            let ns = ui.input(
+                "Namespace del tenancy (Object Storage → Bucket → Namespace)",
+                "",
+            )?;
+            let region = ui.input(
+                "Región (ej. us-ashburn-1, sa-saopaulo-1)",
+                &env.get_or("RESTIC_S3_REGION", ""),
+            )?;
+            let bucket = ui.input("Bucket", "rvmail-backups")?;
+            if ns.is_empty() || region.is_empty() {
+                bail!("Faltan el namespace o la región");
+            }
+            env.set(
+                "RESTIC_REPOSITORY",
+                &format!("s3:https://{ns}.compat.objectstorage.{region}.oraclecloud.com/{bucket}"),
+            );
+            env.set("RESTIC_S3_REGION", &region);
+        }
+        1 => {
+            let repo = ui.input(
+                "Repositorio (s3:https://endpoint/bucket)",
+                &env.get_or("RESTIC_REPOSITORY", ""),
+            )?;
+            env.set("RESTIC_REPOSITORY", &repo);
+            let region = ui.input("Región", &env.get_or("RESTIC_S3_REGION", "us-east-1"))?;
+            env.set("RESTIC_S3_REGION", &region);
+        }
+        _ => {
+            env.set("RESTIC_REPOSITORY", "");
+            info("Respaldos fuera del servidor desactivados");
+            return Ok(());
+        }
+    }
+    let key = ui.input("Access key", &env.get_or("RESTIC_S3_ACCESS_KEY", ""))?;
+    env.set("RESTIC_S3_ACCESS_KEY", &key);
+    let secret = ui.password("Secret key (Enter para dejarla como está)")?;
+    if !secret.is_empty() {
+        env.set("RESTIC_S3_SECRET_KEY", &secret);
+    }
+    if env.value("RESTIC_PASSWORD").is_none() {
+        env.set("RESTIC_PASSWORD", &gen_hex(24));
+        warn("Se generó RESTIC_PASSWORD: sin ella no se pueden leer los respaldos. Guárdala fuera del servidor.");
+    }
+    let keep = ui.input(
+        "Retención: diarios,semanales,mensuales",
+        &env.get_or("RESTIC_KEEP", "7,4,6"),
+    )?;
+    env.set("RESTIC_KEEP", &keep);
+    env.save()?;
+    let at = ui.input(
+        "Hora del respaldo diario (HH:MM, vacío = no programar)",
+        "02:30",
+    )?;
+    if !at.is_empty() {
+        let with_mail = env.get_or("MAILSERVER_PROVIDER", "") == "stalwart";
+        let exe = std::env::current_exe()?;
+        let mut cmd = std::process::Command::new(exe);
+        cmd.args([
+            "backup",
+            "--dir",
+            &dir.to_string_lossy(),
+            "--install-cron",
+            &at,
+        ]);
+        if with_mail {
+            cmd.arg("--with-mail");
+        }
+        if !cmd.status().is_ok_and(|s| s.success()) {
+            bail!("No se pudo programar el respaldo diario");
+        }
+    }
+    ok("Listo. Pruébalo ahora con: sudo rvmail backup");
     Ok(())
 }
 

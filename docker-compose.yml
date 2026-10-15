@@ -199,6 +199,9 @@ services:
       - max_wal_senders=4
       - -c
       - hot_standby=on
+      # Límite de WAL retenido para el respaldo: si está caído mucho tiempo, no llena el disco
+      - -c
+      - max_slot_wal_keep_size=${PG_MAX_SLOT_WAL:-2GB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

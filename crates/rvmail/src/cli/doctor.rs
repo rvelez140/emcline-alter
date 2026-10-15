@@ -97,16 +97,46 @@ pub async fn run(a: DoctorArgs) -> Result<()> {
         Ok(e) => r.ok(format!("Contenedores: {}", e.label())),
         Err(e) => r.fail(e.to_string()),
     }
-    let port = env.get_or("HTTP_PORT", "8088");
-    let health = local_health(&port).await;
-    match &health {
-        Some(v) => r.ok(format!("API sana en 127.0.0.1:{port} (versión {v})")),
-        None => r.fail(format!(
-            "La API no responde en 127.0.0.1:{port}: docker compose ps / logs app"
-        )),
+    let standby = env.get_or("RVMAIL_ROLE", "primary") == "standby";
+    if standby {
+        r.ok("Rol: respaldo (la app arranca al promoverlo con `rvmail failover promote`)");
+    } else {
+        let port = env.get_or("HTTP_PORT", "8088");
+        match local_health(&port).await {
+            Some(v) => r.ok(format!("API sana en 127.0.0.1:{port} (versión {v})")),
+            None => r.fail(format!(
+                "La API no responde en 127.0.0.1:{port}: docker compose ps / logs app"
+            )),
+        }
     }
     disk(&mut r, &dir);
     backups(&mut r, &dir);
+    if let Some(repo) = env.value("RESTIC_REPOSITORY") {
+        let host = repo.split('/').nth(2).unwrap_or(&repo).to_string();
+        r.ok(format!("Respaldos cifrados fuera del servidor: {host}"));
+    } else if !standby {
+        r.warn("Sin respaldos fuera del servidor: rvmail config backup");
+    }
+
+    if standby || env.get_or("RVMAIL_HA", "false") == "true" {
+        title("Alta disponibilidad");
+        match super::ha::status(&dir) {
+            Ok(st) if st.healthy => r.ok(st.detail),
+            Ok(st) => r.fail(st.detail),
+            Err(e) => r.fail(format!("No se pudo consultar la réplica: {e}")),
+        }
+        match super::ha::wg_handshake_age() {
+            Some(s) if s < 180 => r.ok(format!("WireGuard: último contacto hace {s} s")),
+            Some(u64::MAX) => {
+                r.fail("WireGuard: nunca hubo contacto (¿puerto UDP cerrado en el firewall?)")
+            }
+            Some(s) => r.fail(format!("WireGuard: sin contacto desde hace {s} s")),
+            None => {}
+        }
+    }
+    if standby {
+        return finish(r);
+    }
 
     title("Dominio y HTTPS");
     let domain = env.get_or("DOMAIN", "");

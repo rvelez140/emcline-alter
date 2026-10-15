@@ -51,7 +51,8 @@ scale-workers: ## Escala sincronizadores: make scale-workers N=3
 
 prod-config: ## Valida el docker-compose de producción con un .env de ejemplo
 	@printf 'POSTGRES_PASSWORD=x\nREDIS_PASSWORD=x\nJWT_SECRET=x\nMASTER_KEY=x\n' > .env.ci
-	@docker compose --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.yml OK"; \
+	@docker compose --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.yml OK" && \
+	  docker compose -f docker-compose.yml -f docker-compose.ha.yml --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.ha.yml OK"; \
 	  st=$$?; rm -f .env.ci; exit $$st
 	@docker compose -f docker-compose.dev.yml config --quiet && echo "docker-compose.dev.yml OK"
 

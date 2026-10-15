@@ -23,10 +23,16 @@ pub struct BackupArgs {
     /// Incluye los buzones de Stalwart (volumen de datos)
     #[arg(long)]
     pub with_mail: bool,
+    /// Programa el respaldo diario en cron (/etc/cron.d/rvmail) a esta hora (HH:MM) y termina
+    #[arg(long, value_name = "HH:MM")]
+    pub install_cron: Option<String>,
 }
 
 pub async fn backup(a: BackupArgs) -> Result<()> {
     let dir = a.common.dir();
+    if let Some(at) = &a.install_cron {
+        return install_cron(&dir, at, a.with_mail);
+    }
     let env = EnvFile::load(&dir.join(".env"))?;
     let engine = engine::Engine::detect("")?;
     let dest = a.dest.unwrap_or_else(|| dir.join("backups"));
@@ -69,15 +75,14 @@ pub async fn backup(a: BackupArgs) -> Result<()> {
     set_private(&env_copy)?;
 
     if a.with_mail && env.get_or("MAILSERVER_PROVIDER", "") == "stalwart" {
-        let volume = if engine.quadlet {
-            "rvmail-stalwart-data"
-        } else {
-            "rvmail_stalwart_data"
-        };
         let name = format!("stalwart-{stamp}.tar.gz");
-        info("Copiando los buzones de Stalwart…");
+        info("Copiando los buzones y la configuración de Stalwart (se detiene unos segundos)…");
+        // RocksDB no se copia en caliente de forma consistente: se para el servicio
+        let _ = engine.compose(&dir, &["stop", "stalwart"]);
         let ok_tar = Command::new(engine.bin())
-            .args(["run", "--rm", "-v", &format!("{volume}:/data:ro"), "-v"])
+            .args(["run", "--rm"])
+            .args(stalwart_mounts(&engine, &env, true))
+            .arg("-v")
             .arg(format!("{}:/backup", dest.canonicalize()?.display()))
             .args([
                 "docker.io/library/alpine:3",
@@ -85,11 +90,12 @@ pub async fn backup(a: BackupArgs) -> Result<()> {
                 "czf",
                 &format!("/backup/{name}"),
                 "-C",
-                "/data",
+                "/s",
                 ".",
             ])
             .status()
             .is_ok_and(|s| s.success());
+        let _ = engine.compose(&dir, &["start", "stalwart"]);
         if ok_tar {
             set_private(&dest.join(&name))?;
         } else {
@@ -104,7 +110,234 @@ pub async fn backup(a: BackupArgs) -> Result<()> {
         dump.display(),
         size as f64 / 1_048_576.0
     ));
+    if env.value("RESTIC_REPOSITORY").is_some() {
+        offsite(&engine, &env, &dest)?;
+    }
     Ok(())
+}
+
+/// Nombre real del volumen según el motor (compose antepone el proyecto).
+pub fn volume_name(engine: &engine::Engine, env: &EnvFile, name: &str) -> String {
+    if engine.quadlet {
+        format!("rvmail-{}", name.replace('_', "-"))
+    } else {
+        // Como compose: la variable del entorno manda sobre la del .env
+        let project = std::env::var("COMPOSE_PROJECT_NAME")
+            .ok()
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| env.get_or("COMPOSE_PROJECT_NAME", "rvmail"));
+        format!("{project}_{name}")
+    }
+}
+
+fn install_cron(dir: &Path, at: &str, with_mail: bool) -> Result<()> {
+    let Some((h, m)) = at.split_once(':') else {
+        bail!("Hora no válida: {at} (usa HH:MM)")
+    };
+    let (h, m): (u8, u8) = (h.parse()?, m.parse()?);
+    if h > 23 || m > 59 {
+        bail!("Hora no válida: {at}");
+    }
+    let exe = std::env::current_exe()?;
+    let dir = dir.canonicalize()?;
+    let line = format!(
+        "# Respaldo diario de RV Mail (rvmail backup --install-cron)\n\
+         SHELL=/bin/sh\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n\
+         {m} {h} * * * root {} backup --dir {} {}>> {}/backups/backup.log 2>&1\n",
+        exe.display(),
+        dir.display(),
+        if with_mail { "--with-mail " } else { "" },
+        dir.display()
+    );
+    std::fs::create_dir_all(dir.join("backups"))?;
+    std::fs::write("/etc/cron.d/rvmail", line)
+        .context("No se pudo escribir /etc/cron.d/rvmail (¿root?)")?;
+    ok(format!(
+        "Respaldo diario a las {h:02}:{m:02} en /etc/cron.d/rvmail"
+    ));
+    Ok(())
+}
+
+// ---------------------------------------------------------------- restic (fuera del servidor)
+
+const RESTIC_IMAGE: &str = "docker.io/restic/restic:0.17.3";
+
+/// `docker run … restic <args>` con el repositorio y las credenciales del `.env`.
+fn restic(
+    engine: &engine::Engine,
+    env: &EnvFile,
+    mounts: &[(String, &str)],
+    args: &[&str],
+) -> Command {
+    let repo = env.get_or("RESTIC_REPOSITORY", "");
+    let mut c = Command::new(engine.bin());
+    c.args(["run", "--rm", "-i"])
+        .args(["-e", "RESTIC_REPOSITORY", "-e", "RESTIC_PASSWORD"])
+        .args([
+            "-e",
+            "AWS_ACCESS_KEY_ID",
+            "-e",
+            "AWS_SECRET_ACCESS_KEY",
+            "-e",
+            "AWS_DEFAULT_REGION",
+        ])
+        .env("RESTIC_REPOSITORY", &repo)
+        .env("RESTIC_PASSWORD", env.get_or("RESTIC_PASSWORD", ""))
+        .env("AWS_ACCESS_KEY_ID", env.get_or("RESTIC_S3_ACCESS_KEY", ""))
+        .env(
+            "AWS_SECRET_ACCESS_KEY",
+            env.get_or("RESTIC_S3_SECRET_KEY", ""),
+        )
+        .env(
+            "AWS_DEFAULT_REGION",
+            env.get_or("RESTIC_S3_REGION", "us-east-1"),
+        )
+        .args([
+            "-v",
+            &format!(
+                "{}:/root/.cache/restic",
+                volume_name(engine, env, "restic_cache")
+            ),
+        ]);
+    for (host, inside) in mounts {
+        c.args(["-v", &format!("{host}:{inside}")]);
+    }
+    c.arg(RESTIC_IMAGE);
+    // Oracle Object Storage (API compatible con S3) necesita direcciones "path-style"
+    if repo.contains("oraclecloud.com") {
+        c.args(["-o", "s3.bucket-lookup=path"]);
+    }
+    c.args(args);
+    c
+}
+
+fn run_restic(mut c: Command, what: &str) -> Result<()> {
+    let ok = c.status().is_ok_and(|s| s.success());
+    if !ok {
+        bail!("restic: falló {what}");
+    }
+    Ok(())
+}
+
+/// Sube los respaldos locales al repositorio restic (cifrado) y aplica la retención.
+pub fn offsite(engine: &engine::Engine, env: &EnvFile, dest: &Path) -> Result<()> {
+    if env.value("RESTIC_PASSWORD").is_none() {
+        bail!("Falta RESTIC_PASSWORD en .env");
+    }
+    let mount = vec![(dest.canonicalize()?.display().to_string(), "/backup:ro")];
+    let initialized = restic(engine, env, &[], &["cat", "config"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !initialized {
+        info("Creando el repositorio restic…");
+        run_restic(restic(engine, env, &[], &["init"]), "init")?;
+    }
+    info("Subiendo el respaldo fuera del servidor (restic)…");
+    run_restic(
+        restic(
+            engine,
+            env,
+            &mount,
+            &["backup", "--host", "rvmail", "--tag", "rvmail", "/backup"],
+        ),
+        "backup",
+    )?;
+    let keep: Vec<String> = env
+        .get_or("RESTIC_KEEP", "7,4,6")
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let (d, w, m) = (
+        keep.first().map_or("7", String::as_str),
+        keep.get(1).map_or("4", String::as_str),
+        keep.get(2).map_or("6", String::as_str),
+    );
+    run_restic(
+        restic(
+            engine,
+            env,
+            &[],
+            &[
+                "forget",
+                "--tag",
+                "rvmail",
+                "--keep-daily",
+                d,
+                "--keep-weekly",
+                w,
+                "--keep-monthly",
+                m,
+                "--prune",
+            ],
+        ),
+        "forget",
+    )?;
+    ok("Respaldo cifrado subido (restic)");
+    Ok(())
+}
+
+/// Recupera los buzones de Stalwart del último respaldo de restic (failover).
+pub fn restore_stalwart_from_restic(
+    engine: &engine::Engine,
+    dir: &Path,
+    env: &EnvFile,
+) -> Result<()> {
+    if env.value("RESTIC_REPOSITORY").is_none() {
+        bail!("No hay RESTIC_REPOSITORY configurado: no se pueden recuperar los buzones");
+    }
+    let tmp = dir.join("backups/restore");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp)?;
+    let mount = vec![(tmp.canonicalize()?.display().to_string(), "/restore")];
+    info("Descargando el último respaldo de restic…");
+    run_restic(
+        restic(
+            engine,
+            env,
+            &mount,
+            &[
+                "restore", "latest", "--tag", "rvmail", "--target", "/restore",
+            ],
+        ),
+        "restore",
+    )?;
+    let newest = std::fs::read_dir(tmp.join("backup"))?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("stalwart-") && n.ends_with(".tar.gz"))
+        .max()
+        .context("El respaldo no incluye buzones de Stalwart (usa rvmail backup --with-mail)")?;
+    info(format!("Restaurando {newest}…"));
+    let ok_tar = Command::new(engine.bin())
+        .args(["run", "--rm"])
+        .args(stalwart_mounts(engine, env, false))
+        .arg("-v")
+        .arg(format!("{}:/backup:ro", tmp.join("backup").display()))
+        .args(["docker.io/library/alpine:3", "sh", "-c"])
+        .arg(format!(
+            "find /s/data /s/etc -mindepth 1 -delete && tar xzf /backup/{newest} -C /s"
+        ))
+        .status()
+        .is_ok_and(|s| s.success());
+    let _ = std::fs::remove_dir_all(&tmp);
+    if !ok_tar {
+        bail!("No se pudieron restaurar los buzones");
+    }
+    ok("Buzones de Stalwart restaurados");
+    Ok(())
+}
+
+/// Volúmenes de Stalwart montados en /s/data (buzones) y /s/etc (configuración).
+fn stalwart_mounts(engine: &engine::Engine, env: &EnvFile, read_only: bool) -> Vec<String> {
+    let ro = if read_only { ":ro" } else { "" };
+    vec![
+        "-v".into(),
+        format!("{}:/s/data{ro}", volume_name(engine, env, "stalwart_data")),
+        "-v".into(),
+        format!("{}:/s/etc{ro}", volume_name(engine, env, "stalwart_etc")),
+    ]
 }
 
 fn prune(dest: &Path, keep_days: u64) {
@@ -136,22 +369,45 @@ pub struct RestoreArgs {
     #[command(flatten)]
     pub common: Common,
     /// Archivo .dump creado por `rvmail backup`
-    pub file: PathBuf,
+    #[arg(required_unless_present = "mail")]
+    pub file: Option<PathBuf>,
+    /// Restaura los buzones de Stalwart del último respaldo de restic
+    #[arg(long)]
+    pub mail: bool,
 }
 
 pub async fn restore(a: RestoreArgs) -> Result<()> {
     let ui = a.common.ui();
     let dir = a.common.dir();
-    if !a.file.exists() {
-        bail!("No existe {}", a.file.display());
-    }
     let env = EnvFile::load(&dir.join(".env"))?;
+    if a.mail {
+        if !a.common.yes
+            && !ui.confirm(
+                "Esto reemplaza los buzones actuales de Stalwart. ¿Continuar?",
+                false,
+            )?
+        {
+            bail!("Cancelado");
+        }
+        let engine = engine::Engine::detect("")?;
+        engine.compose(&dir, &["stop", "stalwart"])?;
+        let res = restore_stalwart_from_restic(&engine, &dir, &env);
+        engine.compose(&dir, &["start", "stalwart"])?;
+        res?;
+        if a.file.is_none() {
+            return Ok(());
+        }
+    }
+    let file = a.file.clone().context("Indica el archivo .dump")?;
+    if !file.exists() {
+        bail!("No existe {}", file.display());
+    }
     warn("El .env debe tener la MISMA MASTER_KEY que cuando se hizo el respaldo.");
     let sure = a.common.yes
         || ui.confirm(
             &format!(
                 "Esto reemplaza la base de datos actual con {}. ¿Continuar?",
-                a.file.display()
+                file.display()
             ),
             false,
         )?;
@@ -160,7 +416,7 @@ pub async fn restore(a: RestoreArgs) -> Result<()> {
     }
     let engine = engine::Engine::detect("")?;
     engine.compose(&dir, &["stop", "app", "worker"])?;
-    let input = std::fs::File::open(&a.file)?;
+    let input = std::fs::File::open(&file)?;
     let user = env.get_or("POSTGRES_USER", "rvmail");
     let db = env.get_or("POSTGRES_DB", "rvmail");
     let status = engine
@@ -236,6 +492,7 @@ pub async fn update(a: UpdateArgs) -> Result<()> {
             dest: None,
             keep_days: 14,
             with_mail: false,
+            install_cron: None,
         })
         .await?;
     }

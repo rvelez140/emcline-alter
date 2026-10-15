@@ -28,6 +28,10 @@ fn profiles(env: &EnvFile) -> Vec<String> {
 /// Servicios activos según los perfiles.
 pub fn services(env: &EnvFile) -> Vec<&'static str> {
     let p = profiles(env);
+    // En el respaldo solo corre la réplica de Postgres
+    if env.get_or("RVMAIL_ROLE", "primary") == "standby" {
+        return vec!["postgres"];
+    }
     let mut s = vec!["postgres", "redis", "app", "worker"];
     if p.iter().any(|x| x == "stalwart") {
         s.push("stalwart");
@@ -99,6 +103,16 @@ pub fn units(env: &EnvFile, dir: &Path) -> Vec<Unit> {
         format!("AddHost=host.docker.internal:host-gateway\nAddHost={mail_host}:host-gateway\n");
     let deps = "Requires=rvmail-postgres.service rvmail-redis.service\nAfter=rvmail-postgres.service rvmail-redis.service";
 
+    // Alta disponibilidad: Postgres publicado solo en la IP privada (WireGuard)
+    let pg_publish = if g("RVMAIL_HA", "false") == "true" {
+        format!(
+            "PublishPort={}:{}:5432\n",
+            g("PG_REPLICATION_BIND", "10.57.0.1"),
+            g("PG_REPLICATION_PORT", "5433")
+        )
+    } else {
+        String::new()
+    };
     let mut out = vec![
         Unit {
             file: "rvmail.network".into(),
@@ -112,14 +126,16 @@ pub fn units(env: &EnvFile, dir: &Path) -> Vec<Unit> {
             content: format!(
                 "{}[Container]\nContainerName=rvmail-postgres\nImage=docker.io/library/postgres:16-alpine\n\
                  Network=rvmail.network\nEnvironmentFile={env_file}\nVolume=rvmail-postgres-data:/var/lib/postgresql/data\n\
-                 ShmSize=256m\nPodmanArgs=--memory {}\n\
-                 Exec=postgres -c shared_buffers={} -c effective_cache_size={} -c max_connections={} -c wal_level=replica -c max_wal_senders=4 -c hot_standby=on\n\
+                 ShmSize=256m\nPodmanArgs=--memory {}\n{}\
+                 Exec=postgres -c shared_buffers={} -c effective_cache_size={} -c max_connections={} -c wal_level=replica -c max_wal_senders=4 -c hot_standby=on -c max_slot_wal_keep_size={}\n\
                  HealthCmd=pg_isready -U {} -d {}\nHealthInterval=10s\nNotify=healthy\n\n{footer}",
                 header("PostgreSQL", ""),
                 g("PG_MEM_LIMIT", "768m"),
+                pg_publish,
                 g("PG_SHARED_BUFFERS", "128MB"),
                 g("PG_EFFECTIVE_CACHE", "384MB"),
                 g("PG_MAX_CONNECTIONS", "50"),
+                g("PG_MAX_SLOT_WAL", "2GB"),
                 g("POSTGRES_USER", "rvmail"),
                 g("POSTGRES_DB", "rvmail"),
             ),
@@ -164,6 +180,10 @@ pub fn units(env: &EnvFile, dir: &Path) -> Vec<Unit> {
         },
     ];
     let svcs = services(env);
+    if svcs == ["postgres"] {
+        out.truncate(2);
+        return out;
+    }
     if svcs.contains(&"stalwart") {
         out.push(Unit {
             file: "rvmail-stalwart.container".into(),
@@ -376,6 +396,15 @@ mod tests {
             .unwrap();
         assert!(st.content.contains("STALWART_RECOVERY_ADMIN=admin:s3"));
         assert!(target(&services(&e)).contains("rvmail-caddy.service"));
+    }
+
+    #[test]
+    fn standby_runs_only_postgres() {
+        let e = env("RVMAIL_ROLE=standby\nRVMAIL_HA=true\nPG_REPLICATION_BIND=10.57.0.2");
+        let u = units(&e, Path::new("/opt/rvmail"));
+        assert_eq!(u.len(), 2);
+        assert!(u[1].content.contains("PublishPort=10.57.0.2:5433:5432"));
+        assert_eq!(services(&e), ["postgres"]);
     }
 
     #[test]

@@ -36,7 +36,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 # El CLI (`rvmail install`) incluye los archivos de despliegue
-COPY docker-compose.yml .env.example ./
+COPY docker-compose.yml docker-compose.ha.yml .env.example ./
 COPY deploy deploy
 ARG APP_VERSION=dev
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \

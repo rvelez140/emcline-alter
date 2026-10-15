@@ -5,6 +5,7 @@ use anyhow::Result;
 use std::path::Path;
 
 pub const COMPOSE: &str = include_str!("../../../../docker-compose.yml");
+pub const COMPOSE_HA: &str = include_str!("../../../../docker-compose.ha.yml");
 pub const ENV_EXAMPLE: &str = include_str!("../../../../.env.example");
 pub const CADDYFILE: &str = include_str!("../../../../deploy/Caddyfile");
 pub const NGINX_EXAMPLE: &str = include_str!("../../../../deploy/nginx-aapanel.conf.example");
@@ -17,6 +18,7 @@ pub fn write(dir: &Path, refresh: bool) -> Result<Vec<String>> {
     let is_repo = dir.join(".git").exists();
     let files = [
         ("docker-compose.yml", COMPOSE),
+        ("docker-compose.ha.yml", COMPOSE_HA),
         ("deploy/Caddyfile", CADDYFILE),
         ("deploy/nginx-aapanel.conf.example", NGINX_EXAMPLE),
         (".env.example", ENV_EXAMPLE),

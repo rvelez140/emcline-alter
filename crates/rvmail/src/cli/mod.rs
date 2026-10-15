@@ -10,6 +10,7 @@ pub mod detect;
 pub mod doctor;
 pub mod engine;
 pub mod envfile;
+pub mod ha;
 pub mod install;
 pub mod ops;
 pub mod quadlet;
@@ -73,6 +74,10 @@ pub enum AdminCmd {
     Backup(ops::BackupArgs),
     /// Restaura un respaldo de la base de datos
     Restore(ops::RestoreArgs),
+    /// Alta disponibilidad: servidor principal + respaldo con réplica en streaming
+    Ha(ha::HaArgs),
+    /// Conmutación por error: promover el respaldo a principal
+    Failover(ha::FailoverArgs),
 }
 
 pub async fn run(cmd: AdminCmd) -> Result<()> {
@@ -83,6 +88,8 @@ pub async fn run(cmd: AdminCmd) -> Result<()> {
         AdminCmd::Update(a) => ops::update(a).await,
         AdminCmd::Backup(a) => ops::backup(a).await,
         AdminCmd::Restore(a) => ops::restore(a).await,
+        AdminCmd::Ha(a) => ha::run(a).await,
+        AdminCmd::Failover(a) => ha::failover(a).await,
     }
 }
 

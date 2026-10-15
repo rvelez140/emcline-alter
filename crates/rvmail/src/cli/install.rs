@@ -57,6 +57,12 @@ pub struct InstallArgs {
 pub async fn run(a: InstallArgs) -> Result<()> {
     let ui = a.common.ui();
     let dir = a.common.dir();
+    if a.role == "standby" {
+        bail!(
+            "El respaldo se instala con su paquete: en el principal `rvmail ha init`, aquí \
+             `rvmail ha join --bundle standby-bundle.json` (guía: docs/HA.md)."
+        );
+    }
     if !super::is_root() {
         warn("No eres root: si falla algún paso, repite con sudo.");
     }
@@ -299,6 +305,16 @@ pub async fn run(a: InstallArgs) -> Result<()> {
     Ok(())
 }
 
+/// `up` según el rol: en el respaldo solo corre Postgres (réplica de solo lectura);
+/// la app y el worker arrancan al promoverlo.
+pub fn up_args(env: &EnvFile) -> Vec<&'static str> {
+    if env.get_or("RVMAIL_ROLE", "primary") == "standby" {
+        vec!["up", "-d", "postgres"]
+    } else {
+        vec!["up", "-d", "--remove-orphans"]
+    }
+}
+
 /// Si el puerto lo usa nuestra propia instalación (reinstalación), no cuenta como ocupado.
 fn fresh_is_ours(env: &EnvFile, port: u16) -> bool {
     env.value("HTTP_PORT")
@@ -354,8 +370,12 @@ pub async fn start(engine: &engine::Engine, dir: &Path, image: &str) -> Result<(
         info("Descargando imágenes…");
         engine.compose(dir, &["pull"])?;
     }
-    engine.compose(dir, &["up", "-d", "--remove-orphans"])?;
     let env = EnvFile::load(&dir.join(".env"))?;
+    engine.compose(dir, &up_args(&env))?;
+    if env.get_or("RVMAIL_ROLE", "primary") == "standby" {
+        ok("Respaldo: solo Postgres (réplica) está en marcha");
+        return Ok(());
+    }
     info("Esperando a que la aplicación responda…");
     if !engine::wait_healthy(&env.get_or("HTTP_PORT", "8088"), 180).await {
         let _ = engine.compose(dir, &["ps"]);
@@ -402,8 +422,10 @@ fn summary(env: &EnvFile, mode: &str, mailserver: &str, role: &str) {
         }
         _ => {}
     }
-    if role == "standby" {
-        println!("\n  Rol: respaldo. La réplica desde el principal se configura en la fase H (docs/HA.md).");
+    if role == "primary" {
+        println!(
+            "\n  Servidor de respaldo (p. ej. ARM de Oracle): rvmail ha init  (guía: docs/HA.md)"
+        );
     }
     println!("\n  Primer acceso: crea la cuenta de administrador en la pantalla inicial.");
     println!("  Diagnóstico: rvmail doctor   ·   Cambiar ajustes: rvmail config");
