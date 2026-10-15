@@ -32,6 +32,7 @@ crates/rvmail       Binario único `rvmail`: api (axum), worker (IMAP/IDLE), mig
   migrations/       SQL de la base (sqlx, embebidas en el binario)
 crates/rvmail-core  Núcleo compartido: config, cifrado (AES-256-GCM), modelos, eventos.
 apps/web            PWA (Vite + React 19 + Tailwind 4). Interfaz responsive de 3 paneles.
+apps/desktop        App de escritorio/móvil (Tauri 2, proyecto Cargo aparte). Ver docs/APPS.md.
 deploy/             Caddyfile, ejemplo de proxy para aaPanel/nginx, cloud-init.
 scripts/            Instalador, backup, actualización, desarrollo, simulador de aaPanel.
 ```

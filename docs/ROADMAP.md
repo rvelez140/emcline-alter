@@ -62,8 +62,8 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] H5. Perfil de recursos para VPS pequeños (límites de memoria, Postgres/Redis afinados, `WORKER_MAX_ACCOUNTS`)
 
 ## Fase C — Clientes nativos y cliente en Rust
-- [ ] C1. API para apps nativas: tokens de sesión con refresh, CORS controlado, `/.well-known/rvmail` (descubrimiento del servidor)
-- [ ] C2. App de escritorio y móvil con **Tauri 2** (Rust): Windows, macOS, Linux, Android, iOS; bandeja del sistema, `mailto:`, notificaciones nativas
+- [x] C1. API para apps nativas: tokens de sesión con refresh, CORS controlado, `/.well-known/rvmail` (descubrimiento del servidor)
+- [x] C2. App de escritorio y móvil con **Tauri 2** (Rust): Windows, macOS, Linux, Android, iOS; bandeja del sistema, `mailto:`, notificaciones nativas — escritorio listo (Linux probado; Windows/macOS por CI). Móvil: falta `tauri android/ios init` y push con la app cerrada (FCM/APNs)
 - [ ] C3. Cliente web reescrito en Rust/WASM (Leptos) por pantallas, compartiendo tipos con el backend; la PWA React se retira al completar la paridad
 
 ## Fase 1 — Correo completo (v1)

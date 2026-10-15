@@ -7,7 +7,7 @@ dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 - Autodetección de la configuración de cada cuenta (JMAP, autoconfig/ISPDB, MX)
 - Notificación inmediata de correo nuevo (IMAP IDLE + tiempo real en el navegador)
 - Búsqueda en español sobre todas las cuentas
-- App instalable (PWA) en iPhone, Android, Windows y Linux
+- App instalable (PWA) en iPhone, Android, Windows y Linux, y **app de escritorio** (Tauri 2: bandeja, avisos nativos, `mailto:`) — [docs/APPS.md](docs/APPS.md)
 - Entrar con **Google, Microsoft o Yahoo** y conectar Gmail/Outlook/Yahoo sin contraseñas de aplicación ([docs/SSO.md](docs/SSO.md))
 - Contraseñas y tokens de cuentas cifrados (AES-256-GCM)
 - **Servidor de respaldo** (p. ej. ARM de Oracle) con réplica en streaming por WireGuard, respaldos cifrados en Oracle Object Storage y conmutación con `rvmail failover promote` ([docs/HA.md](docs/HA.md))
@@ -49,6 +49,7 @@ Arquitectura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Guía para Claude 
 crates/rvmail       Binario Rust `rvmail`: api (REST, SSE, MCP, web), worker IMAP, migraciones
 crates/rvmail-core  Núcleo Rust compartido (config, cifrado, modelos, eventos)
 apps/web            PWA React + Tailwind
+apps/desktop        App de escritorio/móvil (Tauri 2)
 deploy/             Caddy, aaPanel, cloud-init
 scripts/            Instalar, actualizar, respaldar, restaurar, desarrollo
 ```

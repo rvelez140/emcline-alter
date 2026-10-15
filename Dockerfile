@@ -12,6 +12,7 @@ RUN corepack enable
 WORKDIR /repo
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json apps/web/
+COPY apps/desktop/package.json apps/desktop/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @rvmail/web
 COPY apps/web apps/web
 RUN pnpm --filter @rvmail/web build

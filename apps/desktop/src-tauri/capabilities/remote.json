@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote",
+  "description": "La web de tu servidor RV Mail: solo avisos, contador, inicio de sesión y cambiar de servidor",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://*", "http://localhost:*", "http://127.0.0.1:*"]
+  },
+  "permissions": ["allow-forget-server", "allow-notify", "allow-set-unread", "allow-sso-login"]
+}

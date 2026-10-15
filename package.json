@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "./scripts/dev.sh",
     "dev:web": "pnpm --filter @rvmail/web dev",
+    "desktop": "pnpm --filter @rvmail/desktop dev",
     "build": "pnpm --filter @rvmail/web build",
     "typecheck": "pnpm --filter @rvmail/web typecheck",
     "lint": "pnpm --filter @rvmail/web typecheck && prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
