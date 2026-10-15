@@ -103,6 +103,7 @@ services:
       SSO_YAHOO_CLIENT_ID: ${SSO_YAHOO_CLIENT_ID:-}
       SSO_YAHOO_CLIENT_SECRET: ${SSO_YAHOO_CLIENT_SECRET:-}
       SSO_AUTO_SIGNUP: ${SSO_AUTO_SIGNUP:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-tauri://localhost,http://tauri.localhost,https://tauri.localhost}
     # Explícito (no solo en la imagen): Podman ignora el HEALTHCHECK de imágenes OCI
     healthcheck:
       test: ["CMD", "/usr/local/bin/rvmail", "healthcheck", "api"]

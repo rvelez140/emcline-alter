@@ -70,6 +70,11 @@ struct FlowState {
     nonce: String,
     verifier: Option<String>,
     user_id: Option<Uuid>,
+    /// Inicio de sesión desde una app nativa: adónde volver y reto PKCE de la app
+    #[serde(default)]
+    app_redirect: Option<String>,
+    #[serde(default)]
+    app_challenge: Option<String>,
 }
 
 fn redirect_uri(st: &Shared, p: &Provider) -> String {
@@ -103,6 +108,18 @@ fn url_escape(s: &str) -> String {
 #[derive(Deserialize)]
 struct StartQuery {
     mode: Option<String>,
+    /// Apps nativas (RFC 8252): `rvmail://…` o `http://127.0.0.1:<puerto>/…`
+    app_redirect: Option<String>,
+    /// Reto PKCE S256 de la app para canjear el código en /auth/token/exchange
+    app_challenge: Option<String>,
+}
+
+/// Solo se vuelve a la app propia o a un puerto local (nunca a otra web).
+pub fn valid_app_redirect(u: &str) -> bool {
+    let loopback = ["http://127.0.0.1:", "http://localhost:", "http://[::1]:"]
+        .iter()
+        .any(|p| u.starts_with(p));
+    (u.starts_with("rvmail://") || loopback) && u.len() <= 300 && !u.contains(['#', ' ', '\n'])
 }
 
 /// Es una navegación del navegador: los errores vuelven a la web como `?sso_error=`.
@@ -131,6 +148,13 @@ async fn start_flow(st: &Shared, jar: &CookieJar, pid: &str, q: StartQuery) -> A
         }
         _ => return Err(ApiError::bad_request("Datos inválidos — mode")),
     };
+    let (app_redirect, app_challenge) = match (q.app_redirect, q.app_challenge) {
+        (None, _) => (None, None),
+        (Some(r), Some(c)) if mode == "login" && valid_app_redirect(&r) && c.len() == 43 => {
+            (Some(r), Some(c))
+        }
+        _ => return Err(ApiError::bad_request("Datos inválidos — app_redirect")),
+    };
     let state = oauth::random_token(24);
     let nonce = oauth::random_token(16);
     let verifier = p.pkce.then(|| oauth::random_token(48));
@@ -140,6 +164,8 @@ async fn start_flow(st: &Shared, jar: &CookieJar, pid: &str, q: StartQuery) -> A
         nonce: nonce.clone(),
         verifier: verifier.clone(),
         user_id,
+        app_redirect,
+        app_challenge,
     };
     let mut r = st.redis.clone();
     let _: () = r
@@ -253,6 +279,23 @@ async fn handle_callback(
     match flow.mode.as_str() {
         "login" => {
             let user = login_user(st, &p, &ident).await?;
+            if let (Some(to), Some(challenge)) = (flow.app_redirect, flow.app_challenge) {
+                // App nativa: código de un solo uso que solo ella puede canjear (PKCE)
+                let code = oauth::random_token(32);
+                let payload = super::app_auth::AppCode {
+                    user_id: user.id,
+                    challenge,
+                };
+                let _: () = r
+                    .set_ex(
+                        format!("rvmail:appcode:{code}"),
+                        serde_json::to_string(&payload)?,
+                        super::app_auth::APP_CODE_TTL,
+                    )
+                    .await?;
+                let sep = if to.contains('?') { '&' } else { '?' };
+                return Ok(Redirect::to(&format!("{to}{sep}code={code}")).into_response());
+            }
             Ok((login_cookie(st, jar, &user), Redirect::to("/")).into_response())
         }
         "link" => {
@@ -512,4 +555,18 @@ async fn mail_providers(Session(_): Session) -> Json<Value> {
         .iter()
         .map(|p| json!({ "id": p.id, "name": p.name }))
         .collect::<Vec<_>>()))
+}
+
+#[cfg(test)]
+mod app_redirect_tests {
+    use super::valid_app_redirect;
+
+    #[test]
+    fn only_app_or_loopback() {
+        assert!(valid_app_redirect("rvmail://auth"));
+        assert!(valid_app_redirect("http://127.0.0.1:43123/cb"));
+        assert!(!valid_app_redirect("https://evil.example/cb"));
+        assert!(!valid_app_redirect("http://127.0.0.1.evil.com/cb"));
+        assert!(!valid_app_redirect("javascript:alert(1)"));
+    }
 }

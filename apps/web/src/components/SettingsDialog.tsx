@@ -6,6 +6,7 @@ import {
   Copy,
   Globe,
   KeyRound,
+  Laptop,
   Plus,
   RefreshCw,
   Server,
@@ -121,11 +122,14 @@ function LoginMethods() {
 
   if (data.isSuccess && providers.length === 0 && linked.length === 0) {
     return (
-      <p className="text-sm text-slate-500">
-        El administrador no ha configurado el inicio de sesión con Google, Microsoft o Yahoo (ver{' '}
-        <code>docs/SSO.md</code>
-        ).
-      </p>
+      <div className="space-y-6">
+        <p className="text-sm text-slate-500">
+          El administrador no ha configurado el inicio de sesión con Google, Microsoft o Yahoo (ver{' '}
+          <code>docs/SSO.md</code>
+          ).
+        </p>
+        <Devices />
+      </div>
     );
   }
   return (
@@ -165,6 +169,48 @@ function LoginMethods() {
           <SsoButtons providers={providers} mode="link" label={(n) => `Vincular ${n}`} />
         </div>
       )}
+      <Devices />
+    </div>
+  );
+}
+
+/** Apps de escritorio y móvil con sesión abierta (se puede cerrar a distancia). */
+function Devices() {
+  const qc = useQueryClient();
+  const data = useQuery({ queryKey: ['app-sessions'], queryFn: api.appSessions });
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.revokeAppSession(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['app-sessions'] }),
+  });
+  const list = data.data ?? [];
+  return (
+    <div className="space-y-2 text-sm">
+      <h4 className="font-medium">Apps conectadas</h4>
+      {list.length === 0 && <p className="text-slate-500">Ninguna app de escritorio o móvil ha iniciado sesión.</p>}
+      {list.map((d) => (
+        <div
+          key={d.id}
+          className="flex items-center gap-3 rounded-lg border border-slate-200 p-2 dark:border-slate-800"
+        >
+          <Laptop size={18} className="shrink-0 text-slate-400" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {d.deviceName} <span className="font-normal text-slate-500">· {d.platform}</span>
+            </p>
+            <p className="truncate text-xs text-slate-500">
+              Último uso {formatDate(d.lastUsedAt)}
+              {d.ip ? ` · ${d.ip}` : ''}
+            </p>
+          </div>
+          <button
+            className="btn-ghost text-red-600"
+            onClick={() => confirm(`¿Cerrar la sesión de «${d.deviceName}»?`) && revoke.mutate(d.id)}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      ))}
+      {revoke.isError && <p className="text-red-600">{(revoke.error as Error).message}</p>}
     </div>
   );
 }

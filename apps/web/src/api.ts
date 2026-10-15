@@ -36,6 +36,15 @@ export type Discovery = {
 };
 
 export type SsoProvider = { id: 'google' | 'microsoft' | 'yahoo'; name: string };
+export type AppSession = {
+  id: string;
+  deviceName: string;
+  platform: string;
+  ip: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+};
 export type LinkedIdentity = {
   id: string;
   provider: SsoProvider['id'];
@@ -163,6 +172,8 @@ export const api = {
     ),
   identities: () => request<{ identities: LinkedIdentity[]; providers: SsoProvider[] }>('GET', '/auth/identities'),
   unlinkIdentity: (id: string) => request<void>('DELETE', `/auth/identities/${id}`),
+  appSessions: () => request<AppSession[]>('GET', '/auth/sessions'),
+  revokeAppSession: (id: string) => request<void>('DELETE', `/auth/sessions/${id}`),
   oauthProviders: () => request<SsoProvider[]>('GET', '/oauth/providers'),
   me: () => request<User>('GET', '/auth/me'),
   login: (email: string, password: string) => request<User>('POST', '/auth/login', { email, password }),

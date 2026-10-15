@@ -104,6 +104,9 @@ pub struct ApiConfig {
     pub version: String,
     pub db_pool_size: u32,
     pub mailserver: MailServerConfig,
+    /// Orígenes con permiso CORS (apps de escritorio con interfaz local, integraciones).
+    /// Solo con tokens Bearer: nunca se aceptan cookies entre orígenes.
+    pub cors_origins: Vec<String>,
 }
 
 impl ApiConfig {
@@ -120,6 +123,14 @@ impl ApiConfig {
             app_url: var("APP_URL").unwrap_or_else(|| "http://localhost:5173".into()),
             agent_send_limit_per_hour: num("AGENT_SEND_LIMIT_PER_HOUR", 30),
             append_sent: var("APPEND_SENT").as_deref() != Some("false"),
+            cors_origins: var("CORS_ORIGINS")
+                .unwrap_or_else(|| {
+                    "tauri://localhost,http://tauri.localhost,https://tauri.localhost".into()
+                })
+                .split(',')
+                .map(|o| o.trim().trim_end_matches('/').to_string())
+                .filter(|o| !o.is_empty())
+                .collect(),
             web_dir: var("WEB_DIR").unwrap_or_default(),
             version: var("APP_VERSION").unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
             db_pool_size: num("API_DB_POOL", 10),

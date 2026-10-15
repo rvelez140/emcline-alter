@@ -39,6 +39,8 @@ pub struct SessionUser {
     pub role: String,
     /// Presente solo si la petición llegó con un token de API.
     pub token: Option<TokenGrant>,
+    /// Sesión de app nativa (dispositivo) si llegó con su access token.
+    pub app_session: Option<Uuid>,
 }
 
 impl SessionUser {
@@ -66,7 +68,15 @@ struct Claims {
     role: String,
     iat: i64,
     exp: i64,
+    /// "app" en los access tokens de apps nativas (la cookie del navegador no lo lleva)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    typ: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sid: Option<Uuid>,
 }
+
+/// Vida del access token de las apps (el refresh token lo renueva).
+pub const APP_ACCESS_SECS: i64 = 15 * 60;
 
 pub fn sign_session(st: &Shared, u: &User) -> String {
     let now = Utc::now().timestamp();
@@ -76,6 +86,8 @@ pub fn sign_session(st: &Shared, u: &User) -> String {
         role: u.role.clone(),
         iat: now,
         exp: now + st.cfg.session_days * 86_400,
+        typ: None,
+        sid: None,
     };
     encode(
         &Header::new(Algorithm::HS256),
@@ -83,6 +95,57 @@ pub fn sign_session(st: &Shared, u: &User) -> String {
         &EncodingKey::from_secret(st.cfg.jwt_secret.as_bytes()),
     )
     .expect("JWT firmable")
+}
+
+/// Access token corto para una sesión de app nativa.
+pub fn sign_app_access(st: &Shared, u: &User, sid: Uuid) -> String {
+    let now = Utc::now().timestamp();
+    let claims = Claims {
+        id: u.id,
+        email: u.email.clone(),
+        role: u.role.clone(),
+        iat: now,
+        exp: now + APP_ACCESS_SECS,
+        typ: Some("app".into()),
+        sid: Some(sid),
+    };
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(st.cfg.jwt_secret.as_bytes()),
+    )
+    .expect("JWT firmable")
+}
+
+pub fn app_revoked_key(sid: Uuid) -> String {
+    format!("rvmail:appsess:revoked:{sid}")
+}
+
+/// Valida el access token de una app (firma, caducidad y que su sesión no esté revocada).
+pub async fn resolve_app_access(st: &Shared, raw: &str) -> ApiResult<Option<SessionUser>> {
+    let Ok(data) = decode::<Claims>(
+        raw,
+        &DecodingKey::from_secret(st.cfg.jwt_secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    ) else {
+        return Ok(None);
+    };
+    let c = data.claims;
+    let (Some("app"), Some(sid)) = (c.typ.as_deref(), c.sid) else {
+        return Ok(None);
+    };
+    let mut r = st.redis.clone();
+    let revoked: bool = r.exists(app_revoked_key(sid)).await?;
+    if revoked {
+        return Ok(None);
+    }
+    Ok(Some(SessionUser {
+        id: c.id,
+        email: c.email,
+        role: c.role,
+        token: None,
+        app_session: Some(sid),
+    }))
 }
 
 pub fn read_session_jar(st: &Shared, jar: &CookieJar) -> Option<SessionUser> {
@@ -93,11 +156,16 @@ pub fn read_session_jar(st: &Shared, jar: &CookieJar) -> Option<SessionUser> {
         &Validation::new(Algorithm::HS256),
     )
     .ok()?;
+    // Un access token de app no vale como cookie
+    if data.claims.typ.is_some() {
+        return None;
+    }
     Some(SessionUser {
         id: data.claims.id,
         email: data.claims.email,
         role: data.claims.role,
         token: None,
+        app_session: None,
     })
 }
 
@@ -168,6 +236,7 @@ pub async fn resolve_token(st: &Shared, raw: &str) -> ApiResult<Option<SessionUs
             scopes: r.scopes.0,
             account_ids: r.account_ids.map(|a| a.0),
         }),
+        app_session: None,
     }))
 }
 
@@ -183,6 +252,13 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let st = Shared::from_ref(state);
         if let Some(raw) = bearer(&parts.headers) {
+            if !raw.starts_with(TOKEN_PREFIX) {
+                // Access token de una app nativa
+                return resolve_app_access(&st, &raw)
+                    .await?
+                    .map(Authed)
+                    .ok_or_else(|| ApiError::unauthorized("Sesión no válida o expirada"));
+            }
             return match resolve_token(&st, &raw).await? {
                 Some(u) => Ok(Authed(u)),
                 None => Err(ApiError::unauthorized(
@@ -197,7 +273,7 @@ where
     }
 }
 
-/// Solo la sesión del navegador (gestión de cuentas, tokens, administración).
+/// Sesión del usuario: navegador (cookie) o app nativa (Bearer). Nunca tokens de API.
 pub struct Session(pub SessionUser);
 
 impl<S> FromRequestParts<S> for Session
@@ -207,7 +283,7 @@ where
 {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        if bearer(&parts.headers).is_some() {
+        if bearer(&parts.headers).is_some_and(|b| b.starts_with(TOKEN_PREFIX)) {
             return Err(ApiError::forbidden("Este endpoint no admite tokens de API"));
         }
         let Authed(u) = Authed::from_request_parts(parts, state).await?;
@@ -342,7 +418,7 @@ struct LoginInput {
     password: String,
 }
 
-fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
+pub fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>) -> String {
     // Detrás del proxy (nginx/Caddy), el primer X-Forwarded-For es el cliente
     headers
         .get("x-forwarded-for")
@@ -360,13 +436,21 @@ async fn login(
     jar: CookieJar,
     Body(i): Body<LoginInput>,
 ) -> ApiResult<(CookieJar, Json<Value>)> {
-    let email = validate::email("email", &i.email)?;
-    validate::len("password", &i.password, 1, 200)?;
-    let rl_key = format!(
-        "rvmail:rl:login:{}:{}",
-        client_ip(&headers, Some(peer)),
-        email
-    );
+    let user = authenticate(&st, &headers, Some(peer), &i.email, &i.password).await?;
+    Ok((jar.add(session_cookie(&st, &user)), Json(user_json(&user))))
+}
+
+/// Verifica correo y contraseña (o la del buzón alojado) con límite de intentos.
+pub async fn authenticate(
+    st: &Shared,
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+    email: &str,
+    password: &str,
+) -> ApiResult<User> {
+    let email = validate::email("email", email)?;
+    validate::len("password", password, 1, 200)?;
+    let rl_key = format!("rvmail:rl:login:{}:{}", client_ip(headers, peer), email);
     let mut r = st.redis.clone();
     let attempts: i64 = r.incr(&rl_key, 1).await?;
     if attempts == 1 {
@@ -386,16 +470,16 @@ async fn login(
         Some(u)
             if u.password_hash
                 .as_deref()
-                .is_some_and(|h| verify_password(h, &i.password)) =>
+                .is_some_and(|h| verify_password(h, password)) =>
         {
             u
         }
-        other => super::mailserver::mailbox_login(&st, &email, &i.password, other)
+        other => super::mailserver::mailbox_login(st, &email, password, other)
             .await?
             .ok_or_else(|| ApiError::unauthorized("Correo o contraseña incorrectos"))?,
     };
     let _: i64 = r.del(&rl_key).await?;
-    Ok((jar.add(session_cookie(&st, &user)), Json(user_json(&user))))
+    Ok(user)
 }
 
 async fn logout(jar: CookieJar) -> (axum::http::StatusCode, CookieJar) {

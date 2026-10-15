@@ -2,6 +2,7 @@
 //! endpoints que la versión NestJS. También sirve la web (PWA) compilada.
 
 mod accounts;
+mod app_auth;
 mod auth;
 mod clients;
 mod discover;
@@ -38,6 +39,7 @@ pub fn router(st: Shared) -> Router {
     let api = Router::new()
         .merge(health::routes())
         .merge(auth::routes())
+        .merge(app_auth::routes())
         .merge(accounts::routes())
         .merge(mail::routes())
         .merge(events::routes())
@@ -47,9 +49,16 @@ pub fn router(st: Shared) -> Router {
         .merge(sso::routes())
         .merge(discover::routes())
         .fallback(|| async { error::ApiError::not_found("Ruta no encontrada") })
-        .layer(axum::extract::DefaultBodyLimit::max(30 * 1024 * 1024));
+        .layer(axum::extract::DefaultBodyLimit::max(30 * 1024 * 1024))
+        .layer(cors(&st.cfg.cors_origins));
 
-    let mut app = Router::new().nest("/api", api).with_state(st.clone());
+    let mut app = Router::new()
+        .nest("/api", api)
+        .route(
+            "/.well-known/rvmail",
+            axum::routing::get(well_known).layer(cors_any()),
+        )
+        .with_state(st.clone());
 
     if !st.cfg.web_dir.is_empty() {
         app = app.fallback_service(web_service(&st.cfg.web_dir));
@@ -59,6 +68,63 @@ pub fn router(st: Shared) -> Router {
         .layer(tower_http::trace::TraceLayer::new_for_http().make_span_with(|r: &Request<_>| {
             tracing::debug_span!("http", method = %r.method(), path = %r.uri().path())
         }))
+}
+
+/// CORS para apps con interfaz local (Tauri) e integraciones: solo con Bearer,
+/// sin cookies (`allow_credentials` desactivado), así la sesión web no se expone.
+fn cors(origins: &[String]) -> tower_http::cors::CorsLayer {
+    use axum::http::Method;
+    let list: Vec<HeaderValue> = origins
+        .iter()
+        .filter_map(|o| HeaderValue::from_str(o).ok())
+        .collect();
+    tower_http::cors::CorsLayer::new()
+        .allow_origin(list)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::PUT,
+            Method::DELETE,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+        .max_age(Duration::from_secs(3600))
+}
+
+fn cors_any() -> tower_http::cors::CorsLayer {
+    tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET])
+}
+
+/// Descubrimiento del servidor para las apps: con solo el dominio saben qué ofrece.
+async fn well_known(
+    axum::extract::State(st): axum::extract::State<Shared>,
+) -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "service": "rvmail",
+        "name": "RV Mail",
+        "version": st.cfg.version,
+        "api": "/api",
+        "auth": {
+            "password": true,
+            "mailbox": st.mailserver.enabled(),
+            "signup": st.cfg.allow_signup,
+            "sso": sso::enabled_providers(&st),
+            "token": "/api/auth/token",
+            "refresh": "/api/auth/token/refresh",
+            "ssoStart": "/api/auth/sso/{provider}/start?app_redirect={redirect}&app_challenge={challenge}",
+            "ssoExchange": "/api/auth/token/exchange",
+            "appRedirectSchemes": ["rvmail"],
+        },
+        "events": "/api/events",
+        "mcp": "/api/mcp",
+        "features": {
+            "jmapAccounts": true,
+            "oauthAccounts": !sso::enabled_providers(&st).is_empty(),
+            "mailServer": st.mailserver.enabled(),
+        },
+    }))
 }
 
 /// Web compilada: recursos con hash con caché larga; sw/manifest sin caché; SPA → index.html.
