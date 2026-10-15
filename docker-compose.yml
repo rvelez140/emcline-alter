@@ -103,6 +103,13 @@ services:
       SSO_YAHOO_CLIENT_ID: ${SSO_YAHOO_CLIENT_ID:-}
       SSO_YAHOO_CLIENT_SECRET: ${SSO_YAHOO_CLIENT_SECRET:-}
       SSO_AUTO_SIGNUP: ${SSO_AUTO_SIGNUP:-false}
+    # Explícito (no solo en la imagen): Podman ignora el HEALTHCHECK de imágenes OCI
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/rvmail", "healthcheck", "api"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
     extra_hosts: *host-access
     networks:
       default:
@@ -148,7 +155,7 @@ services:
 
   # Servidor de correo Stalwart (opcional, perfil "stalwart"): SMTP, IMAP, JMAP,
   # CalDAV/CardDAV en Rust. RV Mail lo administra por JMAP (MAILSERVER_PROVIDER=stalwart).
-  # El instalador completa su configuración inicial (rvmail install).
+  # `rvmail install` completa su configuración inicial sin pasar por su asistente web.
   stalwart:
     image: stalwartlabs/stalwart:${STALWART_VERSION:-latest}
     profiles: ["stalwart"]
@@ -162,8 +169,9 @@ services:
       # Administración/JMAP solo local: RV Mail habla con él por la red interna
       - "127.0.0.1:${STALWART_HTTP_PORT:-8180}:8080"
     environment:
-      # Credencial fija de recuperación (evita la contraseña aleatoria del primer arranque)
-      STALWART_RECOVERY_ADMIN: admin:${STALWART_ADMIN_PASSWORD:-}
+      # Administrador de recuperación: rvmail install lo usa para la configuración
+      # inicial (x:Bootstrap) y guarda el administrador permanente en .env
+      STALWART_RECOVERY_ADMIN: admin:${STALWART_RECOVERY_PASSWORD:-}
     volumes:
       - stalwart_data:/var/lib/stalwart
       - stalwart_etc:/etc/stalwart

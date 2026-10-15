@@ -35,6 +35,11 @@ die() {
   exit 1
 }
 
+# Si el CLI `rvmail` está instalado (instalador de una línea), él hace todo
+if command -v rvmail >/dev/null 2>&1 && [[ -z "${RVMAIL_LEGACY_INSTALL:-}" ]]; then
+  exec rvmail install --dir "$APP_DIR" "$@"
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -185,8 +190,7 @@ if [[ "$MAILSERVER" == "stalwart" ]]; then
   PROFILES+=("stalwart")
   set_env MAILSERVER_HOSTNAME "$MAIL_HOST"
   set_env STALWART_URL "http://stalwart:8080"
-  set_env STALWART_ADMIN_USER "admin"
-  [[ -n "$(get_env STALWART_ADMIN_PASSWORD)" ]] || set_env STALWART_ADMIN_PASSWORD "$(gen)"
+  [[ -n "$(get_env STALWART_RECOVERY_PASSWORD)" ]] || set_env STALWART_RECOVERY_PASSWORD "$(gen)"
   [[ -n "$(get_env MAILSERVER_JMAP_URL)" ]] || set_env MAILSERVER_JMAP_URL "https://$MAIL_HOST"
 fi
 set_env COMPOSE_PROFILES "$(IFS=,; echo "${PROFILES[*]}")"
@@ -219,6 +223,34 @@ done
 }
 c_ok "RV Mail está funcionando"
 
+# Configuración inicial de Stalwart (x:Bootstrap) con el administrador de recuperación;
+# devuelve el administrador permanente, que se guarda en .env
+if [[ "$MAILSERVER" == "stalwart" && -z "$(get_env STALWART_ADMIN_PASSWORD)" ]]; then
+  c_info "Configurando Stalwart…"
+  ST_URL="http://127.0.0.1:$(get_env STALWART_HTTP_PORT || true)"
+  [[ "$ST_URL" == *: ]] && ST_URL="${ST_URL}8180"
+  for _ in $(seq 1 40); do
+    if curl -s -o /dev/null "$ST_URL/.well-known/jmap"; then break; fi
+    sleep 3
+  done
+  MAIL_DOMAIN="$(get_env RVMAIL_MAIL_DOMAIN || true)"
+  MAIL_DOMAIN="${MAIL_DOMAIN:-${MAIL_HOST#*.}}"
+  resp="$(curl -s -m 60 -u "admin:$(get_env STALWART_RECOVERY_PASSWORD)" -H 'Content-Type: application/json' \
+    -d "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:stalwart:jmap\"],\"methodCalls\":[[\"x:Bootstrap/set\",{\"update\":{\"singleton\":{\"serverHostname\":\"$MAIL_HOST\",\"defaultDomain\":\"$MAIL_DOMAIN\",\"requestTlsCertificate\":false,\"generateDkimKeys\":true}}},\"c1\"]]}" \
+    "$ST_URL/jmap/" || true)"
+  st_user="$(sed -n 's/.*"username":"\([^"]*\)".*/\1/p' <<<"$resp")"
+  st_pass="$(sed -n 's/.*"secret":"\([^"]*\)".*/\1/p' <<<"$resp")"
+  if [[ -n "$st_user" && -n "$st_pass" ]]; then
+    set_env STALWART_ADMIN_USER "$st_user"
+    set_env STALWART_ADMIN_PASSWORD "$st_pass"
+    docker compose restart stalwart
+    docker compose up -d --remove-orphans
+    c_ok "Stalwart configurado (administrador $st_user)"
+  else
+    c_warn "No se pudo completar la configuración inicial de Stalwart. Reintenta con: rvmail config mailserver"
+  fi
+fi
+
 # ---------------------------------------------------------------- resumen
 echo
 echo "────────────────────────────────────────────────────────────"
@@ -246,7 +278,7 @@ fi
 if [[ "$MAILSERVER" == "stalwart" ]]; then
   echo
   echo " Servidor de correo Stalwart ($MAIL_HOST):"
-  echo "   Administrador: admin / contraseña en .env (STALWART_ADMIN_PASSWORD)"
+  echo "   Administrador: $(get_env STALWART_ADMIN_USER || true) / clave en .env (STALWART_ADMIN_PASSWORD)"
   echo "   Publica la URL JMAP https://$MAIL_HOST en tu proxy hacia 127.0.0.1:$(get_env STALWART_HTTP_PORT || echo 8180)"
   echo "   Alta de dominios y registros DNS: RV Mail → Configuración → Servidor de correo."
 fi

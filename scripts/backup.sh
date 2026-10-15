@@ -5,6 +5,7 @@
 #   30 2 * * * cd /opt/rvmail && ./scripts/backup.sh >> backups/backup.log 2>&1
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if command -v rvmail >/dev/null 2>&1; then exec rvmail backup --dir "$PWD" ${1:+--dest "$1"}; fi
 
 DEST="${1:-./backups}"
 KEEP_DAYS="${KEEP_DAYS:-14}"

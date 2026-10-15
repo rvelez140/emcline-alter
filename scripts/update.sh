@@ -3,6 +3,7 @@
 # Hace respaldo antes, reconstruye y reinicia. Las migraciones se aplican solas.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if command -v rvmail >/dev/null 2>&1; then exec rvmail update --dir "$PWD" "$@"; fi
 
 echo "➜ Respaldo previo…"
 ./scripts/backup.sh
@@ -29,5 +30,5 @@ for _ in $(seq 1 40); do
   fi
   sleep 3
 done
-echo "✘ La app no responde tras actualizar. Revisa: docker compose logs api" >&2
+echo "✘ La app no responde tras actualizar. Revisa: docker compose logs app worker" >&2
 exit 1
