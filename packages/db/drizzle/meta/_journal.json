@@ -8,6 +8,13 @@
       "when": 1792029250400,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792039385298,
+      "tag": "0001_agent_tokens_mailserver",
+      "breakpoints": true
     }
   ]
 }

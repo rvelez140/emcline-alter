@@ -46,6 +46,8 @@ export const mailAccounts = pgTable(
     /** Contraseña o token cifrado con AES-256-GCM (ver @rvmail/shared/crypto). */
     secretEnc: text('secret_enc').notNull(),
     authType: text('auth_type', { enum: ['password', 'oauth2'] }).notNull().default('password'),
+    /** external = cuenta de cualquier proveedor; mailserver = buzón del servidor de correo integrado */
+    source: text('source', { enum: ['external', 'mailserver'] }).notNull().default('external'),
     signatureHtml: text('signature_html'),
     enabled: boolean('enabled').notNull().default(true),
     status: text('status').notNull().default('pending'),
@@ -130,7 +132,38 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Ámbitos que puede tener un token de API (agentes de IA, integraciones). */
+export const API_SCOPES = ['mail:read', 'mail:draft', 'mail:send', 'mail:modify'] as const;
+export type ApiScope = (typeof API_SCOPES)[number];
+
+/**
+ * Tokens personales para agentes de IA (MCP) e integraciones. Solo se guarda
+ * el SHA-256 del token; el valor en claro se muestra una única vez al crearlo.
+ */
+export const apiTokens = pgTable(
+  'api_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Primeros caracteres del token, para reconocerlo en la interfaz */
+    prefix: text('prefix').notNull(),
+    scopes: jsonb('scopes').$type<ApiScope[]>().notNull().default([]),
+    /** null = todas las cuentas del usuario; si no, solo estas */
+    accountIds: jsonb('account_ids').$type<string[] | null>(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('api_tokens_user_idx').on(t.userId)],
+);
+
 export type User = typeof users.$inferSelect;
+export type ApiToken = typeof apiTokens.$inferSelect;
 export type MailAccount = typeof mailAccounts.$inferSelect;
 export type Folder = typeof folders.$inferSelect;
 export type Message = typeof messages.$inferSelect;
