@@ -15,6 +15,16 @@ x-app-env: &app-env
   MASTER_KEY: ${MASTER_KEY:?falta MASTER_KEY}
   TZ: ${TZ:-America/Santo_Domingo}
   IMAP_ALLOW_SELF_SIGNED: ${IMAP_ALLOW_SELF_SIGNED:-false}
+  MAILSERVER_PROVIDER: ${MAILSERVER_PROVIDER:-none}
+  MAILSERVER_HOSTNAME: ${MAILSERVER_HOSTNAME:-}
+
+# El servidor de correo (Postfix/Dovecot de aaPanel) y el panel corren en el
+# propio VPS: estos alias apuntan a la IP del host desde dentro de los contenedores.
+# MAILSERVER_HOSTNAME se resuelve al host para que el certificado TLS coincida
+# sin depender de que el router haga "hairpin NAT".
+x-host-access: &host-access
+  - "host.docker.internal:host-gateway"
+  - "${MAILSERVER_HOSTNAME:-mail.invalid}:host-gateway"
 
 x-logging: &logging
   driver: json-file
@@ -72,6 +82,18 @@ services:
       APP_URL: https://${DOMAIN}
       SESSION_DAYS: ${SESSION_DAYS:-30}
       INSECURE_COOKIES: ${INSECURE_COOKIES:-false}
+      MAILSERVER_IMAP_PORT: ${MAILSERVER_IMAP_PORT:-993}
+      MAILSERVER_SMTP_PORT: ${MAILSERVER_SMTP_PORT:-465}
+      AAPANEL_URL: ${AAPANEL_URL:-https://host.docker.internal:7800}
+      AAPANEL_API_KEY: ${AAPANEL_API_KEY:-}
+      AAPANEL_VERIFY_TLS: ${AAPANEL_VERIFY_TLS:-false}
+      AGENT_SEND_LIMIT_PER_HOUR: ${AGENT_SEND_LIMIT_PER_HOUR:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    extra_hosts: *host-access
+    networks:
+      default:
+        # IP fija: es la que se añade a la lista blanca de la API de aaPanel
+        ipv4_address: ${API_IP:-172.30.57.10}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +113,7 @@ services:
       SYNC_INTERVAL_SEC: ${SYNC_INTERVAL_SEC:-300}
       WORKER_MAX_ACCOUNTS: ${WORKER_MAX_ACCOUNTS:-500}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    extra_hosts: *host-access
     depends_on:
       api:
         condition: service_healthy # la API aplica las migraciones al arrancar
@@ -127,6 +150,12 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     logging: *logging
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.30.57.0/24}
 
 volumes:
   postgres_data:

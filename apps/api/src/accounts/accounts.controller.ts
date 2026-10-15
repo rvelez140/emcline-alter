@@ -20,6 +20,7 @@ import Redis from 'ioredis';
 import { z } from 'zod';
 import { AuthGuard, CurrentUser, SessionUser } from '../auth/auth.guard';
 import { parse } from '../common/zod';
+import { config } from '../config';
 import { DB, REDIS } from '../infra/infra.module';
 import { ConnectionSettings, humanizeMailError, settingsFromAccount, smtpTransport, withImap } from '../mail/mail-clients';
 
@@ -89,7 +90,12 @@ export class AccountsController {
     const { password, ...rest } = input;
     const [row] = await this.db
       .insert(mailAccounts)
-      .values({ ...rest, userId: user.id, secretEnc: encryptSecret(password) })
+      .values({
+        ...rest,
+        userId: user.id,
+        secretEnc: encryptSecret(password),
+        source: config.mailserver.hostname && rest.imapHost === config.mailserver.hostname ? 'mailserver' : 'external',
+      })
       .returning();
     await this.notifyWorker({ type: 'account.changed', accountId: row.id });
     return toDto(row);

@@ -10,6 +10,10 @@
 #                        están ocupados —p. ej. aaPanel— usa external)
 #   --email CORREO       Correo para Let's Encrypt (modo caddy)
 #   --port PUERTO        Puerto local en modo external (por defecto 8088)
+#   --mailserver MODO    aapanel | none | auto (por defecto auto: si detecta el
+#                        Mail Server de aaPanel en este VPS, lo integra)
+#   --aapanel-key CLAVE  Clave de la API de aaPanel (Settings → API interface)
+#   --mail-host HOST     Nombre del servidor de correo (ej. mail.solucionesrv.net)
 #   --yes                No preguntar (instala Docker si falta, etc.)
 set -euo pipefail
 
@@ -19,6 +23,9 @@ MODE="auto"
 ACME_EMAIL=""
 HTTP_PORT="8088"
 ASSUME_YES="false"
+MAILSERVER="auto"
+AAPANEL_KEY=""
+MAIL_HOST=""
 
 c_ok() { printf '\033[32m✔ %s\033[0m\n' "$*"; }
 c_info() { printf '\033[36m➜ %s\033[0m\n' "$*"; }
@@ -34,8 +41,11 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="${2:-}"; shift 2 ;;
     --email) ACME_EMAIL="${2:-}"; shift 2 ;;
     --port) HTTP_PORT="${2:-}"; shift 2 ;;
+    --mailserver) MAILSERVER="${2:-}"; shift 2 ;;
+    --aapanel-key) AAPANEL_KEY="${2:-}"; shift 2 ;;
+    --mail-host) MAIL_HOST="${2:-}"; shift 2 ;;
     --yes | -y) ASSUME_YES="true"; shift ;;
-    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
   esac
 done
@@ -83,6 +93,43 @@ if [[ "$MODE" == "external" ]] && port_busy "$HTTP_PORT"; then
   die "El puerto local $HTTP_PORT está ocupado. Usa --port con otro (ej. 8089)."
 fi
 
+# ---------------------------------------------------------------- servidor de correo (aaPanel)
+PANEL_DIR=/www/server/panel
+PANEL_PORT=""
+if [[ -d "$PANEL_DIR" ]]; then
+  PANEL_PORT="$(tr -dc '0-9' <"$PANEL_DIR/data/port.pl" 2>/dev/null || true)"
+  PANEL_PORT="${PANEL_PORT:-7800}"
+  c_info "aaPanel detectado (puerto del panel: $PANEL_PORT)"
+fi
+if [[ "$MAILSERVER" == "auto" ]]; then
+  if [[ -d "$PANEL_DIR/plugin/mail_sys" ]]; then
+    MAILSERVER="aapanel"
+    c_info "Mail Server de aaPanel detectado: RV Mail administrará sus dominios y buzones"
+  else
+    MAILSERVER="none"
+  fi
+fi
+[[ "$MAILSERVER" == "aapanel" || "$MAILSERVER" == "none" ]] || die "--mailserver debe ser aapanel, none o auto"
+
+if [[ "$MAILSERVER" == "aapanel" ]]; then
+  [[ -n "$PANEL_PORT" ]] || PANEL_PORT=7800
+  # Nombre del servidor de correo: el myhostname de Postfix (el del certificado TLS)
+  if [[ -z "$MAIL_HOST" ]] && command -v postconf >/dev/null 2>&1; then
+    MAIL_HOST="$(postconf -h myhostname 2>/dev/null || true)"
+    [[ "$MAIL_HOST" == *.* ]] || MAIL_HOST=""
+  fi
+  if [[ -z "$MAIL_HOST" && "$ASSUME_YES" != "true" ]]; then
+    read -r -p "Nombre del servidor de correo (ej. mail.${DOMAIN#*.}): " MAIL_HOST
+  fi
+  [[ -n "$MAIL_HOST" ]] || MAIL_HOST="mail.${DOMAIN#*.}"
+  c_ok "Servidor de correo: $MAIL_HOST"
+  if [[ -z "$AAPANEL_KEY" && "$ASSUME_YES" != "true" ]]; then
+    echo "  aaPanel → Settings → API interface: actívala y copia la clave."
+    read -r -s -p "Clave de la API de aaPanel (Enter para configurarla después): " AAPANEL_KEY
+    echo
+  fi
+fi
+
 # ---------------------------------------------------------------- .env
 gen() { openssl rand -hex 24; }
 set_env() {
@@ -114,6 +161,12 @@ set_env DOMAIN "$DOMAIN"
 set_env PROXY_MODE "$MODE"
 set_env HTTP_PORT "$HTTP_PORT"
 [[ -n "$ACME_EMAIL" ]] && set_env ACME_EMAIL "$ACME_EMAIL"
+set_env MAILSERVER_PROVIDER "$MAILSERVER"
+if [[ "$MAILSERVER" == "aapanel" ]]; then
+  set_env MAILSERVER_HOSTNAME "$MAIL_HOST"
+  set_env AAPANEL_URL "https://host.docker.internal:${PANEL_PORT}"
+  [[ -n "$AAPANEL_KEY" ]] && set_env AAPANEL_API_KEY "$AAPANEL_KEY"
+fi
 if [[ "$MODE" == "caddy" ]]; then
   set_env COMPOSE_PROFILES "caddy"
 else
@@ -121,8 +174,15 @@ else
 fi
 
 # ---------------------------------------------------------------- arranque
-c_info "Construyendo imágenes (la primera vez tarda unos minutos)…"
-docker compose build --pull
+# Con imágenes precompiladas (IMAGE_PREFIX=ghcr.io/…, amd64/arm64) solo se descargan;
+# con IMAGE_PREFIX=rvmail se compilan en el propio VPS.
+if [[ "$(get_env IMAGE_PREFIX)" == "rvmail" || -z "$(get_env IMAGE_PREFIX)" ]]; then
+  c_info "Construyendo imágenes (la primera vez tarda unos minutos)…"
+  docker compose build --pull
+else
+  c_info "Descargando imágenes precompiladas…"
+  docker compose pull
+fi
 c_info "Iniciando servicios…"
 docker compose up -d --remove-orphans
 
@@ -156,6 +216,14 @@ else
   echo "   2. Activa SSL (Let's Encrypt)"
   echo "   3. Pega en la config del sitio: deploy/nginx-aapanel.conf.example"
   echo "   Luego abre https://$DOMAIN"
+fi
+if [[ "$MAILSERVER" == "aapanel" ]]; then
+  echo
+  echo " Servidor de correo integrado (aaPanel Mail Server):"
+  echo "   1. aaPanel → Settings → API interface → activa la API y añade a la"
+  echo "      lista blanca de IPs:  $(get_env API_IP || true)"
+  [[ -z "$(get_env AAPANEL_API_KEY)" ]] && echo "   2. Pon la clave en .env (AAPANEL_API_KEY=…) y ejecuta: docker compose up -d"
+  echo "   Comprueba la conexión en RV Mail → Configuración → Servidor de correo."
 fi
 echo
 echo " Primer acceso: crea la cuenta de administrador en la pantalla inicial."

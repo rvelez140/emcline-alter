@@ -16,4 +16,15 @@ export const config = {
   secureCookies: process.env.NODE_ENV === 'production' && process.env.INSECURE_COOKIES !== 'true',
   sessionDays: Number(process.env.SESSION_DAYS ?? 30),
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
+  agentSendLimitPerHour: Number(process.env.AGENT_SEND_LIMIT_PER_HOUR ?? 30),
+  mailserver: {
+    /** none = solo cliente; aapanel = administra el Mail Server de aaPanel del mismo VPS */
+    provider: (process.env.MAILSERVER_PROVIDER ?? 'none') as 'none' | 'aapanel',
+    hostname: process.env.MAILSERVER_HOSTNAME ?? '',
+    imapPort: Number(process.env.MAILSERVER_IMAP_PORT ?? 993),
+    smtpPort: Number(process.env.MAILSERVER_SMTP_PORT ?? 465),
+    aapanelUrl: (process.env.AAPANEL_URL ?? 'https://host.docker.internal:7800').replace(/\/+$/, ''),
+    aapanelApiKey: process.env.AAPANEL_API_KEY ?? '',
+    aapanelVerifyTls: process.env.AAPANEL_VERIFY_TLS === 'true',
+  },
 };

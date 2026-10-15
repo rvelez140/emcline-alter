@@ -13,15 +13,17 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { Db, users } from '@rvmail/db';
+import { Db, mailAccounts, User, users } from '@rvmail/db';
 import argon2 from 'argon2';
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import Redis from 'ioredis';
 import { z } from 'zod';
 import { parse } from '../common/zod';
 import { config } from '../config';
 import { DB, REDIS } from '../infra/infra.module';
+import { MailServerService } from '../mailserver/mailserver.service';
+import { ProvisioningService } from '../mailserver/provisioning.service';
 import { AuthGuard, CurrentUser, SESSION_COOKIE, SessionUser, signSession } from './auth.guard';
 
 const registerSchema = z.object({
@@ -40,13 +42,15 @@ export class AuthController {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly mailserver: MailServerService,
+    private readonly provisioning: ProvisioningService,
   ) {}
 
   /** Indica si la instalación aún no tiene usuarios (pantalla de configuración inicial). */
   @Get('setup')
   async setup() {
     const [{ n }] = await this.db.select({ n: count() }).from(users);
-    return { needsSetup: n === 0, allowSignup: config.allowSignup };
+    return { needsSetup: n === 0, allowSignup: config.allowSignup, mailboxLogin: this.mailserver.enabled };
   }
 
   @Post('register')
@@ -83,9 +87,10 @@ export class AuthController {
       throw new HttpException('Demasiados intentos. Espera 15 minutos.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const user = await this.db.query.users.findFirst({ where: eq(users.email, input.email) });
+    let user = await this.db.query.users.findFirst({ where: eq(users.email, input.email) });
     if (!user || !(await argon2.verify(user.passwordHash, input.password))) {
-      throw new UnauthorizedException('Correo o contraseña incorrectos');
+      user = await this.mailboxLogin(input.email, input.password, user);
+      if (!user) throw new UnauthorizedException('Correo o contraseña incorrectos');
     }
     await this.redis.del(rlKey);
     this.setCookie(res, { id: user.id, email: user.email, role: user.role });
@@ -104,6 +109,44 @@ export class AuthController {
     const user = await this.db.query.users.findFirst({ where: eq(users.id, session.id) });
     if (!user) throw new UnauthorizedException();
     return { id: user.id, name: user.name, email: user.email, role: user.role };
+  }
+
+  /**
+   * Inicio de sesión con las credenciales de un buzón del servidor integrado:
+   * si el IMAP las acepta, se crea el usuario (o se sincroniza su contraseña)
+   * y el buzón queda conectado como cuenta. Así cada buzón alojado tiene su
+   * acceso a RV Mail sin configurar nada.
+   */
+  private async mailboxLogin(email: string, password: string, existing: User | undefined): Promise<User | undefined> {
+    if (!this.mailserver.enabled) return undefined;
+    if (!(await this.mailserver.isManagedDomain(email.split('@')[1]))) return undefined;
+
+    if (existing) {
+      // Solo usuarios normales cuyo acceso proviene de ese buzón (nunca administradores)
+      if (existing.role !== 'user') return undefined;
+      const linked = await this.db.query.mailAccounts.findFirst({
+        where: and(
+          eq(mailAccounts.userId, existing.id),
+          eq(mailAccounts.email, email),
+          eq(mailAccounts.source, 'mailserver'),
+        ),
+      });
+      if (!linked) return undefined;
+    }
+    if (!(await this.provisioning.verifyMailboxLogin(email, password))) return undefined;
+
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    let user = existing;
+    if (user) {
+      await this.db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+    } else {
+      [user] = await this.db
+        .insert(users)
+        .values({ email, name: email.split('@')[0], passwordHash, role: 'user' })
+        .returning();
+    }
+    await this.provisioning.linkMailbox(user.id, email, password, user.name);
+    return user;
   }
 
   private setCookie(res: Response, user: SessionUser) {
