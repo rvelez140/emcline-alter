@@ -162,7 +162,7 @@ fn with_security_headers(app: Router) -> Router {
         (
             "content-security-policy",
             "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; \
-             script-src 'self'; connect-src 'self'; frame-src 'self' blob: data: about:; worker-src 'self'; \
+             script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; frame-src 'self' blob: data: about:; worker-src 'self'; \
              manifest-src 'self'; base-uri 'self'; form-action 'self' https://accounts.google.com \
              https://login.microsoftonline.com https://api.login.yahoo.com",
         ),

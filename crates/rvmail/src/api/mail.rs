@@ -51,6 +51,11 @@ fn push_scope(q: &mut QueryBuilder<Postgres>, user: &SessionUser) {
 
 // ------------------------------------------------------------------ tipos
 
+// Tipos de la API compartidos con los clientes en Rust (crates/rvmail-types)
+pub use rvmail_types::{
+    AttachmentInfo, FolderDto, MessageBody, MessageFull, MessagePage, MessageSummary,
+};
+
 #[derive(Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSummary {
@@ -60,38 +65,6 @@ pub struct AccountSummary {
     pub status: String,
     pub enabled: bool,
     pub source: String,
-}
-
-#[derive(Serialize, FromRow)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderDto {
-    pub id: Uuid,
-    pub account_id: Uuid,
-    pub path: String,
-    pub name: String,
-    pub delimiter: Option<String>,
-    pub special_use: Option<String>,
-    pub unread_count: i32,
-    pub total_count: i32,
-}
-
-#[derive(Serialize, FromRow, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageSummary {
-    pub id: Uuid,
-    pub account_id: Uuid,
-    pub folder_id: Uuid,
-    pub subject: String,
-    pub from_name: Option<String>,
-    pub from_address: Option<String>,
-    pub to: SqlJson<Vec<Address>>,
-    pub date: DateTime<Utc>,
-    pub snippet: String,
-    pub seen: bool,
-    pub flagged: bool,
-    pub has_attachments: bool,
-    pub account_color: String,
-    pub account_email: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -106,28 +79,6 @@ pub struct ListQuery {
     /// "<ISO date>|<id>" del último elemento de la página anterior
     pub cursor: Option<String>,
     pub limit: Option<i64>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MessagePage {
-    pub items: Vec<MessageSummary>,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachmentInfo {
-    pub filename: Option<String>,
-    pub content_type: String,
-    pub size: usize,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MessageBody {
-    pub html: Option<String>,
-    pub text: Option<String>,
-    pub attachments: Vec<AttachmentInfo>,
 }
 
 #[derive(FromRow)]
@@ -398,14 +349,27 @@ pub async fn get_message(
         set_flags(st, user, id, Some(true), None).await?;
         seen = true;
     }
-    Ok(json!({
-        "id": msg.id, "accountId": msg.account_id, "folderId": msg.folder_id, "messageId": msg.message_id,
-        "subject": msg.subject, "fromName": msg.from_name, "fromAddress": msg.from_address,
-        "to": msg.to.0, "cc": msg.cc.0, "date": msg.date, "snippet": msg.snippet,
-        "seen": seen, "flagged": msg.flagged, "hasAttachments": msg.has_attachments,
-        "accountColor": acc.color, "accountEmail": acc.email,
-        "html": body.html, "text": body.text, "attachments": body.attachments,
-    }))
+    Ok(serde_json::to_value(MessageFull {
+        id: msg.id,
+        account_id: msg.account_id,
+        folder_id: msg.folder_id,
+        message_id: msg.message_id,
+        subject: msg.subject,
+        from_name: msg.from_name,
+        from_address: msg.from_address,
+        to: msg.to.0,
+        cc: msg.cc.0,
+        date: msg.date,
+        snippet: msg.snippet,
+        seen,
+        flagged: msg.flagged,
+        has_attachments: msg.has_attachments,
+        account_color: acc.color,
+        account_email: acc.email,
+        html: body.html,
+        text: body.text,
+        attachments: body.attachments,
+    })?)
 }
 
 pub async fn set_flags(

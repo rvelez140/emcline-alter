@@ -28,14 +28,32 @@ pub fn routes() -> Router<Shared> {
 
 /// Nunca devolver la credencial cifrada al cliente (regla 2).
 pub fn dto(a: &MailAccount) -> Value {
-    json!({
-        "id": a.id, "userId": a.user_id, "displayName": a.display_name, "email": a.email, "color": a.color,
-        "imapHost": a.imap_host, "imapPort": a.imap_port, "imapSecure": a.imap_secure,
-        "smtpHost": a.smtp_host, "smtpPort": a.smtp_port, "smtpSecure": a.smtp_secure,
-        "username": a.username, "authType": a.auth_type, "protocol": a.protocol, "jmapUrl": a.jmap_url, "source": a.source, "signatureHtml": a.signature_html,
-        "enabled": a.enabled, "status": a.status, "lastError": a.last_error, "lastSyncAt": a.last_sync_at,
-        "sortOrder": a.sort_order, "createdAt": a.created_at,
+    serde_json::to_value(rvmail_types::AccountDto {
+        id: a.id,
+        user_id: a.user_id,
+        display_name: a.display_name.clone(),
+        email: a.email.clone(),
+        color: a.color.clone(),
+        imap_host: a.imap_host.clone(),
+        imap_port: a.imap_port,
+        imap_secure: a.imap_secure,
+        smtp_host: a.smtp_host.clone(),
+        smtp_port: a.smtp_port,
+        smtp_secure: a.smtp_secure,
+        username: a.username.clone(),
+        auth_type: a.auth_type.clone(),
+        protocol: a.protocol.clone(),
+        jmap_url: a.jmap_url.clone(),
+        source: a.source.clone(),
+        signature_html: a.signature_html.clone(),
+        enabled: a.enabled,
+        status: a.status.clone(),
+        last_error: a.last_error.clone(),
+        last_sync_at: a.last_sync_at,
+        sort_order: a.sort_order,
+        created_at: a.created_at,
     })
+    .expect("cuenta serializable")
 }
 
 #[derive(Deserialize, Clone)]

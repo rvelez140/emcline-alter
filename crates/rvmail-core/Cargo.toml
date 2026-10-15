@@ -10,6 +10,7 @@ aes-gcm = "0.10"
 anyhow = "1.0.104"
 base64 = "0.22"
 chrono = { version = "0.4.45", features = ["serde"] }
+rvmail-types = { version = "0.2.0", path = "../rvmail-types", features = ["sqlx"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 redis = { version = "1.7.1", features = ["tokio-comp", "aio", "connection-manager"] }
 serde = { version = "1.0.229", features = ["derive"] }

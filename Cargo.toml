@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rvmail-core", "crates/rvmail"]
+members = ["crates/rvmail-types", "crates/rvmail-core", "crates/rvmail"]
 
 [workspace.package]
 version = "0.2.0"

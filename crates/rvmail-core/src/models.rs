@@ -1,15 +1,11 @@
 //! Filas de la base de datos (esquema en `packages/db/src/schema.ts` y migraciones SQL).
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Address {
-    pub name: Option<String>,
-    pub address: String,
-}
+/// Definido en `rvmail-types` (lo comparten servidor y clientes).
+pub use rvmail_types::Address;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct MailAccount {
