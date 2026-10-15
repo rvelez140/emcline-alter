@@ -10,8 +10,14 @@ echo "➜ Respaldo previo…"
 echo "➜ Descargando cambios…"
 git pull --ff-only
 
-echo "➜ Reconstruyendo…"
-docker compose build --pull
+PREFIX="$(grep -E '^IMAGE_PREFIX=' .env | cut -d= -f2- || true)"
+if [[ -z "$PREFIX" || "$PREFIX" == "rvmail" ]]; then
+  echo "➜ Reconstruyendo…"
+  docker compose build --pull
+else
+  echo "➜ Descargando imágenes nuevas…"
+  docker compose pull
+fi
 docker compose up -d --remove-orphans
 
 PORT="$(grep -E '^HTTP_PORT=' .env | cut -d= -f2- || echo 8088)"

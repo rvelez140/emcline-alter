@@ -48,6 +48,9 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out/worker ./
 USER node
+# El worker escribe un latido tras cada supervisión (cada 30 s); si pasa 1,5 min sin latir, está colgado
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "const s=require('fs').statSync('/tmp/rvmail-worker.heartbeat');process.exit(Date.now()-s.mtimeMs<90000?0:1)"
 CMD ["node", "dist/main.js"]
 
 # ---------------------------------------------------------------- web

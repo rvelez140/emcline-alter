@@ -2,7 +2,9 @@ import { createDb, mailAccounts } from '@rvmail/db';
 import { workerControlChannel, WorkerControl } from '@rvmail/shared';
 import { and, eq, ne } from 'drizzle-orm';
 import Redis from 'ioredis';
-import { hostname } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+import { hostname, tmpdir } from 'node:os';
+import path from 'node:path';
 import pino from 'pino';
 import { AccountSession, SessionOptions } from './account-session';
 import { LeaseManager } from './lease';
@@ -17,6 +19,8 @@ const opts: SessionOptions = {
 const MAX_ACCOUNTS = Number(process.env.WORKER_MAX_ACCOUNTS ?? 500);
 const SUPERVISE_MS = 30_000;
 const RENEW_MS = 20_000;
+/** Archivo de latido que lee el HEALTHCHECK del contenedor (ver Dockerfile). */
+const HEARTBEAT_FILE = process.env.WORKER_HEARTBEAT_FILE ?? path.join(tmpdir(), 'rvmail-worker.heartbeat');
 
 const { db, sql } = createDb(process.env.DATABASE_URL, 5);
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -57,6 +61,7 @@ async function supervise() {
   const wanted = new Set(rows.map((r) => r.id));
   for (const id of sessions.keys()) if (!wanted.has(id)) await stopAccount(id);
   for (const id of wanted) await startAccount(id);
+  await writeFile(HEARTBEAT_FILE, String(Date.now())).catch(() => undefined);
 }
 
 async function renewLeases() {
