@@ -12,7 +12,7 @@ dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 - Contraseñas y tokens de cuentas cifrados (AES-256-GCM)
 - **Servidor de correo integrado**: administra dominios y buzones del Mail Server de aaPanel o de **Stalwart** del mismo VPS, con verificación DNS ([docs/MAILSERVER.md](docs/MAILSERVER.md))
 - **Agentes de IA**: servidor MCP para que Claude u otros agentes lean, redacten y envíen correo, con tokens de permisos limitados ([docs/AI-AGENT.md](docs/AI-AGENT.md))
-- Instalación en un comando con Docker (amd64 y ARM); convive con aaPanel y lo detecta solo
+- Instalación en una línea con Docker o Podman (amd64 y ARM) y administración con el CLI `rvmail` (config, doctor, update, backup); convive con aaPanel y lo detecta solo
 
 > Estado: **v0.1 — base funcional.** Ver el plan completo en [docs/ROADMAP.md](docs/ROADMAP.md)
 > (calendario, contactos, OAuth, PGP, IA…).
@@ -20,11 +20,13 @@ dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 ## Instalar en un VPS
 
 ```bash
-git clone <URL-de-tu-repo> /opt/rvmail && cd /opt/rvmail
-sudo ./scripts/install.sh --domain correo.tudominio.com
+curl -fsSL https://raw.githubusercontent.com/rvelez140/emcline-alter/main/scripts/get.sh | sudo sh
 ```
 
-Detalles, aaPanel y respaldos: [docs/DEPLOY.md](docs/DEPLOY.md).
+El asistente `rvmail install` detecta la arquitectura (x86_64/ARM), Docker o
+Podman, aaPanel, los puertos y la IP pública, y lo deja todo funcionando.
+Después: `rvmail config` (cambiar ajustes), `rvmail doctor` (diagnóstico),
+`rvmail update`, `rvmail backup`. Detalles: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Desarrollar
 

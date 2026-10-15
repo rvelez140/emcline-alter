@@ -49,6 +49,12 @@ make check         # todo lo anterior
 make prod-config   # valida docker-compose de producción
 ```
 
+CLI de administración del VPS (`crates/rvmail/src/cli/`): `rvmail install | config |
+doctor | update | backup | restore`. Incluye `docker-compose.yml`, `.env.example` y
+`deploy/` dentro del binario (`cli/assets.rs`): si cambias esos archivos, el
+instalador de una línea los distribuye en la siguiente versión. Las variables que
+solo usa el CLI empiezan por `RVMAIL_`.
+
 Servidor de correo integrado en desarrollo: `node scripts/fake-aapanel.mjs` y
 `MAILSERVER_PROVIDER=aapanel` en `.env.dev`. Guías: `docs/MAILSERVER.md`, `docs/AI-AGENT.md`.
 

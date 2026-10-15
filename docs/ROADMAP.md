@@ -40,7 +40,7 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] S1. SSO (OpenID Connect) para entrar a RV Mail: Google, Microsoft (Entra ID), Yahoo; botones en el login; vinculación por correo verificado
 - [x] S2. Cuentas de correo por OAuth2 (XOAUTH2 en IMAP/SMTP) con refresco automático de tokens: Gmail, Outlook/M365, Yahoo
 - [x] S3a. Guía de registro de apps (docs/SSO.md) y configuración por `.env`
-- [ ] S3b. Configurar proveedores desde `rvmail config` (fase I)
+- [x] S3b. Configurar proveedores desde `rvmail config` (fase I)
 
 ## Fase J — JMAP (el protocolo moderno de correo)
 - [x] J1. Cliente JMAP (RFC 8620/8621) en el worker: sesión, Mailbox/Email/changes, push (EventSource) — cuentas `protocol = jmap`
@@ -48,11 +48,11 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] J3. Proveedor de servidor **Stalwart** (Rust, JMAP/IMAP/SMTP/CalDAV/CardDAV) junto a aaPanel: dominios, buzones, DKIM vía su API
 
 ## Fase I — Instalador y administración (`rvmail` CLI)
-- [ ] I1. `rvmail install`: asistente interactivo (dominio, proxy caddy/external, aaPanel/Stalwart/ninguno, SSO, rol primario/respaldo), autodetección de arquitectura, puertos, aaPanel, IP pública y DNS
-- [ ] I2. `rvmail config`: menú para modificar cualquier ajuste después de instalar (reescribe `.env` y reinicia lo necesario)
-- [ ] I3. `rvmail doctor` (DNS, TLS, puertos, conexión a panel/IMAP/SMTP), `rvmail update`, `rvmail backup`/`restore`
-- [ ] I4. Instalador de una línea (`curl … | sh`) que descarga el binario correcto (x86_64/aarch64)
-- [ ] I5. Soporte Podman (Quadlet + `podman compose`) además de Docker
+- [x] I1. `rvmail install`: asistente interactivo (dominio, proxy caddy/external, aaPanel/Stalwart/ninguno, SSO, rol primario/respaldo), autodetección de arquitectura, puertos, aaPanel, IP pública y DNS
+- [x] I2. `rvmail config`: menú para modificar cualquier ajuste después de instalar (reescribe `.env` y reinicia lo necesario)
+- [x] I3. `rvmail doctor` (DNS, TLS, puertos, conexión a panel/IMAP/SMTP), `rvmail update`, `rvmail backup`/`restore`
+- [x] I4. Instalador de una línea (`curl … | sh`) que descarga el binario correcto (x86_64/aarch64)
+- [x] I5. Soporte Podman (Quadlet + `podman compose`) además de Docker
 
 ## Fase H — Alta disponibilidad: servidor principal + respaldo ARM (Oracle)
 - [ ] H1. Rol `primary`/`standby` en la instalación; red privada entre VPS con WireGuard

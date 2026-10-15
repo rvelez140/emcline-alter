@@ -33,7 +33,7 @@ coincide y el tráfico no sale a internet.
 
 ## Configuración (el instalador lo hace casi todo)
 
-`sudo ./scripts/install.sh --domain correo.tudominio.com` detecta aaPanel y su
+`sudo rvmail install` (o `./scripts/install.sh`) detecta aaPanel y su
 Mail Server, lee el puerto del panel y el `myhostname` de Postfix, y te pide la
 clave de la API. A mano, en `.env`:
 
@@ -102,20 +102,30 @@ inmediato por EventSource, sin conexiones IDLE.
 > 587, 993). En un VPS con el Mail Server de aaPanel activo, sigue con
 > `aapanel`; usa `stalwart` en un VPS limpio o tras desactivar el de aaPanel.
 
-`sudo ./scripts/install.sh --mailserver stalwart` lo deja configurado. A mano, en `.env`:
+`sudo rvmail install --mailserver stalwart` (o `sudo rvmail config mailserver` en una instalación existente) lo deja configurado, incluida la configuración inicial de Stalwart. A mano, en `.env`:
 
 ```ini
 MAILSERVER_PROVIDER=stalwart
 MAILSERVER_HOSTNAME=mail.tudominio.com
 STALWART_URL=http://stalwart:8080          # red interna de Docker
-STALWART_ADMIN_USER=admin
-STALWART_ADMIN_PASSWORD=<larga y aleatoria>
+STALWART_RECOVERY_PASSWORD=<larga y aleatoria>  # solo para la configuración inicial
+STALWART_ADMIN_USER=                       # los rellena rvmail con el administrador
+STALWART_ADMIN_PASSWORD=                   # permanente (admin@<dominio>) tras el bootstrap
 MAILSERVER_JMAP_URL=https://mail.tudominio.com   # URL JMAP que verán los clientes
 COMPOSE_PROFILES=stalwart                  # (o caddy,stalwart)
 ```
 
-`STALWART_ADMIN_PASSWORD` se pasa a Stalwart como `STALWART_RECOVERY_ADMIN`, así
-no hace falta buscar la contraseña aleatoria del primer arranque. La
+`STALWART_RECOVERY_PASSWORD` se pasa a Stalwart como `STALWART_RECOVERY_ADMIN`.
+En el primer arranque Stalwart queda en modo de configuración inicial; `rvmail`
+la completa por JMAP (`x:Bootstrap/set`: nombre del servidor, dominio principal,
+claves DKIM) y guarda en `.env` el administrador permanente que devuelve
+Stalwart.
+
+> **Certificado TLS del correo.** Los puertos 80/443 los usa Caddy o aaPanel,
+> así que Stalwart no puede pedir su certificado por HTTP. Configúralo en su
+> panel (`ssh -L 8180:127.0.0.1:8180` y abre `http://localhost:8180`) con
+> ACME por **DNS-01** (Cloudflare u otro proveedor). Hasta entonces usa un
+> certificado autofirmado (`IMAP_ALLOW_SELF_SIGNED=true` para RV Mail). La
 administración (puerto 8080 del contenedor) solo se publica en
 `127.0.0.1:${STALWART_HTTP_PORT:-8180}`; publica `MAILSERVER_JMAP_URL` en tu
 proxy hacia ese puerto para que las apps externas usen JMAP.

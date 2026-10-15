@@ -17,7 +17,7 @@ https://TU_DOMINIO/api/auth/sso/microsoft/callback
 https://TU_DOMINIO/api/auth/sso/yahoo/callback
 ```
 
-Pon los datos en `.env` (o con `rvmail config`) y reinicia: `docker compose up -d`.
+Lo más fácil: `sudo rvmail config sso` (pide Client ID y secreto de cada proveedor y aplica el cambio). A mano: pon los datos en `.env` y reinicia con `docker compose up -d`.
 
 ## Google
 
