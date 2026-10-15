@@ -374,12 +374,20 @@ function MailServerAdmin() {
     return (
       <div className="space-y-2 text-sm">
         <p>
-          RV Mail está funcionando <b>solo como cliente</b>. Para administrar dominios y buzones del Mail Server de
-          aaPanel de este VPS, configura en el <code>.env</code>:
+          RV Mail está funcionando <b>solo como cliente</b>. Para administrar dominios y buzones, elige un servidor de
+          correo en el <code>.env</code> (o con <code>rvmail config</code>):
         </p>
+        <p className="text-xs text-slate-500">Mail Server de aaPanel en este VPS:</p>
         <CopyBox
           multiline
           value={'MAILSERVER_PROVIDER=aapanel\nMAILSERVER_HOSTNAME=mail.tudominio.com\nAAPANEL_API_KEY=…'}
+        />
+        <p className="text-xs text-slate-500">Stalwart (incluido en RV Mail, con JMAP):</p>
+        <CopyBox
+          multiline
+          value={
+            'MAILSERVER_PROVIDER=stalwart\nCOMPOSE_PROFILES=stalwart\nMAILSERVER_HOSTNAME=mail.tudominio.com\nSTALWART_ADMIN_USER=admin@tudominio.com\nSTALWART_ADMIN_PASSWORD=…'
+          }
         />
         <p className="text-slate-500">
           y reinicia con <code>docker compose up -d</code>. Detalles en <code>docs/MAILSERVER.md</code>.
@@ -400,13 +408,21 @@ function MailServerAdmin() {
         )}
         <div className="flex-1">
           <p className="font-medium">
-            {ready ? 'Conectado al Mail Server de aaPanel' : 'No se pudo conectar con aaPanel'}
+            {ready
+              ? `Conectado a ${s.provider === 'stalwart' ? 'Stalwart' : 'el Mail Server de aaPanel'}`
+              : `No se pudo conectar con ${s.provider === 'stalwart' ? 'Stalwart' : 'aaPanel'}`}
           </p>
           <p className="text-xs text-slate-600 dark:text-slate-400">
             Servidor de correo: {s.hostname || '(MAILSERVER_HOSTNAME sin definir)'}
             {s.error && ` · ${s.error}`}
           </p>
-          {!ready && (
+          {!ready && s.provider === 'stalwart' && (
+            <p className="mt-1 text-xs">
+              Revisa <code>STALWART_URL</code> y las credenciales de administrador (<code>STALWART_ADMIN_USER</code>,{' '}
+              <code>STALWART_ADMIN_PASSWORD</code>).
+            </p>
+          )}
+          {!ready && s.provider !== 'stalwart' && (
             <p className="mt-1 text-xs">
               Revisa que la API de aaPanel esté activa, que la clave sea correcta y que la IP de la API de RV Mail esté
               en la lista blanca (ver <code>API_IP</code> en <code>.env</code>).

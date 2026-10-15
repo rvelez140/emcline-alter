@@ -19,6 +19,20 @@ export type Account = {
   signatureHtml: string | null;
   source: 'external' | 'mailserver';
   authType: 'password' | 'oauth2';
+  protocol: 'imap' | 'jmap';
+  jmapUrl: string | null;
+};
+
+export type Discovery = {
+  source: 'mailserver' | 'jmap' | 'autoconfig' | null;
+  managed: boolean;
+  jmapUrl?: string | null;
+  imapHost?: string;
+  imapPort?: number;
+  imapSecure?: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
 };
 
 export type SsoProvider = { id: 'google' | 'microsoft' | 'yahoo'; name: string };
@@ -81,7 +95,7 @@ export type ApiToken = {
 };
 
 export type MailServerStatus = {
-  provider: 'none' | 'aapanel';
+  provider: 'none' | 'aapanel' | 'stalwart';
   enabled: boolean;
   hostname: string;
   ok: boolean;
@@ -160,6 +174,15 @@ export const api = {
   createAccount: (input: Record<string, unknown>) => request<Account>('POST', '/accounts', input),
   updateAccount: (id: string, input: Record<string, unknown>) => request<Account>('PATCH', `/accounts/${id}`, input),
   deleteAccount: (id: string) => request<void>('DELETE', `/accounts/${id}`),
+  createJmapAccount: (input: {
+    displayName: string;
+    email: string;
+    jmapUrl: string;
+    username: string;
+    password: string;
+    color: string;
+  }) => request<Account>('POST', '/accounts/jmap', input),
+  discover: (email: string) => request<Discovery>('GET', `/accounts/discover?email=${encodeURIComponent(email)}`),
 
   folders: () => request<Folder[]>('GET', '/folders'),
   messages: (params: { accountId?: string; folderId?: string; special?: Special; q?: string; cursor?: string }) => {

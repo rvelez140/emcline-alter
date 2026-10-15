@@ -5,8 +5,8 @@ import { Account, api, ssoStart } from '../api';
 import { SsoButtons } from './SsoButtons';
 
 /**
- * Proveedores comunes. El autodescubrimiento completo (autoconfig/SRV/MX)
- * y OAuth para Gmail/Microsoft están en el roadmap.
+ * Proveedores comunes. Al escribir el correo, el servidor intenta descubrir la
+ * configuración (servidor propio, JMAP, autoconfig de Thunderbird, MX).
  */
 const PRESETS: Record<
   string,
@@ -32,7 +32,7 @@ const PRESETS: Record<
     label: 'Outlook / Hotmail',
     imap: ['outlook.office365.com', 993, true],
     smtp: ['smtp.office365.com', 587, false],
-    hint: 'Microsoft está retirando la autenticación básica; para cuentas de M365 se usará OAuth (roadmap).',
+    hint: 'Microsoft está retirando la autenticación básica: usa "Conectar con Microsoft" si está disponible.',
   },
   yahoo: {
     label: 'Yahoo',
@@ -58,6 +58,10 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
     queryFn: api.oauthProviders,
   });
   const [preset, setPreset] = useState('custom');
+  // imap = IMAP + SMTP; jmap = protocolo moderno (Stalwart, Fastmail…) con push
+  const [protocol, setProtocol] = useState<'imap' | 'jmap'>(account?.protocol ?? 'imap');
+  const [jmapUrl, setJmapUrl] = useState(account?.jmapUrl ?? '');
+  const isJmap = protocol === 'jmap';
   const [f, setF] = useState({
     displayName: account?.displayName ?? '',
     email: account?.email ?? '',
@@ -105,36 +109,64 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
     }
   }
 
-  const [managed, setManaged] = useState(false);
+  const [found, setFound] = useState<string | null>(null);
 
-  /** Si el dominio está alojado en el servidor de correo integrado, se rellena todo solo. */
+  /** Autodescubrimiento: servidor integrado, JMAP, autoconfig de Thunderbird o MX conocidos. */
   async function detectServer() {
-    if (editing || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) return;
-    const cfg = await api.autoconfig(f.email).catch(() => null);
-    if (!cfg?.managed) {
-      setManaged(false);
+    if (editing || preset !== 'custom' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) return;
+    setFound('Buscando la configuración…');
+    const cfg = await api.discover(f.email).catch(() => null);
+    if (!cfg?.source) {
+      setFound(null);
       return;
     }
-    setManaged(true);
-    setPreset('custom');
-    setF((s) => ({
-      ...s,
-      username: s.email,
-      imapHost: cfg.imapHost,
-      imapPort: cfg.imapPort,
-      imapSecure: cfg.imapSecure,
-      smtpHost: cfg.smtpHost,
-      smtpPort: cfg.smtpPort,
-      smtpSecure: cfg.smtpSecure,
-    }));
+    // JMAP si el servidor lo ofrece y no hay datos de IMAP, o si es el servidor integrado con JMAP
+    const useJmap = !!cfg.jmapUrl && (!cfg.imapHost || cfg.source === 'mailserver');
+    setProtocol(useJmap ? 'jmap' : 'imap');
+    if (cfg.jmapUrl) setJmapUrl(cfg.jmapUrl);
+    if (cfg.imapHost) {
+      setF((s) => ({
+        ...s,
+        username: s.email,
+        imapHost: cfg.imapHost!,
+        imapPort: cfg.imapPort!,
+        imapSecure: cfg.imapSecure!,
+        smtpHost: cfg.smtpHost!,
+        smtpPort: cfg.smtpPort!,
+        smtpSecure: cfg.smtpSecure!,
+      }));
+    }
+    setFound(
+      cfg.source === 'mailserver'
+        ? 'Este dominio está alojado en tu servidor de correo: la configuración se completó sola. Solo falta la contraseña.'
+        : useJmap
+          ? 'Se encontró un servidor JMAP para este dominio.'
+          : 'Se encontró la configuración del servidor. Revísala y escribe la contraseña.',
+    );
   }
 
   const save = useMutation({
     mutationFn: () => {
       const { password, ...rest } = f;
-      return editing
-        ? api.updateAccount(account!.id, password ? { ...rest, password } : rest)
-        : api.createAccount({ ...rest, password });
+      if (editing && isJmap) {
+        const { displayName, color, email } = f;
+        return api.updateAccount(
+          account!.id,
+          password ? { displayName, color, email, password } : { displayName, color, email },
+        );
+      }
+      if (editing) return api.updateAccount(account!.id, password ? { ...rest, password } : rest);
+      if (isJmap) {
+        return api.createJmapAccount({
+          displayName: f.displayName,
+          email: f.email,
+          jmapUrl,
+          username: f.username,
+          password,
+          color: f.color,
+        });
+      }
+      return api.createAccount({ ...rest, password });
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['accounts'] });
@@ -267,14 +299,49 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
             )}
           </div>
 
-          {managed && (
+          {found && (
             <p className="rounded-lg bg-green-50 p-2 text-xs text-green-800 dark:bg-green-900/30 dark:text-green-200">
-              Este dominio está alojado en tu servidor de correo: la configuración se completó sola. Solo falta la
-              contraseña.
+              {found}
             </p>
           )}
 
-          {!isOAuth && (
+          {!isOAuth && preset === 'custom' && (
+            <div>
+              <label className="label">Tipo de conexión</label>
+              <div className="flex gap-2">
+                {(['imap', 'jmap'] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={editing}
+                    onClick={() => setProtocol(p)}
+                    className={`btn flex-1 border ${
+                      protocol === p
+                        ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-700/20 dark:text-brand-100'
+                        : 'border-slate-300 dark:border-slate-700'
+                    }`}
+                  >
+                    {p === 'imap' ? 'IMAP / SMTP' : 'JMAP (moderno, con push)'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isOAuth && isJmap && (
+            <Field label="URL del servidor JMAP">
+              <input
+                className="input"
+                placeholder="https://mail.dominio.com"
+                value={jmapUrl}
+                onChange={(e) => setJmapUrl(e.target.value)}
+                readOnly={editing}
+                required
+              />
+            </Field>
+          )}
+
+          {!isOAuth && !isJmap && (
             <>
               <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
                 <legend className="label">Entrante (IMAP)</legend>
