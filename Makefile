@@ -17,11 +17,8 @@ dev-reset: ## Borra los datos de desarrollo y vuelve a empezar
 	$(DEV) up -d --wait
 	pnpm db:migrate
 
-dev: ## Corre api y web con recarga en caliente (el worker: make dev-worker)
-	pnpm dev
-
-dev-worker: ## Corre el worker Rust con las variables de .env.dev
-	set -a; . ./.env.dev; set +a; cargo run -p rvmail -- worker
+dev: ## Corre api y worker (Rust) y la web (Vite) con recarga
+	./scripts/dev.sh
 
 check: ## Typecheck + build de todo (TypeScript y Rust)
 	pnpm typecheck && pnpm build
@@ -40,8 +37,8 @@ down: ## Detiene la app (los datos se conservan)
 ps: ## Estado de los contenedores
 	docker compose ps
 
-logs: ## Logs en vivo de api, worker y web
-	docker compose logs -f --tail=100 api worker web
+logs: ## Logs en vivo de la app y el worker
+	docker compose logs -f --tail=100 app worker
 
 update: ## Respaldo + actualización + reinicio
 	./scripts/update.sh

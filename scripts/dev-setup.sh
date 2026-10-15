@@ -6,6 +6,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 command -v node >/dev/null || { echo "Instala Node.js 22 o superior" >&2; exit 1; }
 command -v docker >/dev/null || { echo "Instala Docker Desktop / Docker Engine" >&2; exit 1; }
+command -v cargo >/dev/null || { echo "Instala Rust: https://rustup.rs" >&2; exit 1; }
 corepack enable >/dev/null 2>&1 || true
 
 if [[ ! -f .env.dev ]]; then
@@ -22,7 +23,7 @@ pnpm db:migrate
 cat <<'EOF'
 
 ✔ Entorno listo. Ahora:
-    pnpm dev
+    make dev
   y abre http://localhost:5173
 
   Cuenta de correo de prueba para agregar en la app:

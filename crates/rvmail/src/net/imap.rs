@@ -47,6 +47,49 @@ pub async fn connect(p: &ImapParams<'_>) -> Result<ImapSession, ImapError> {
     }
 }
 
+/// Inicio de sesión con OAuth2 (Gmail, Outlook/M365, Yahoo): mecanismo XOAUTH2.
+pub async fn connect_xoauth2(
+    host: &str,
+    port: u16,
+    user: &str,
+    access_token: &str,
+    allow_self_signed: bool,
+) -> Result<ImapSession, ImapError> {
+    let p = ImapParams {
+        host,
+        port,
+        secure: true,
+        username: user,
+        password: "",
+        allow_self_signed,
+    };
+    let client = open(&p).await.map_err(|e| ImapError::Other(humanize(&e)))?;
+    let auth = XOAuth2 {
+        user: user.to_string(),
+        token: access_token.to_string(),
+    };
+    match timeout(CONNECT_TIMEOUT, client.authenticate("XOAUTH2", auth)).await {
+        Err(_) => Err(ImapError::Other(
+            "Tiempo de espera agotado al iniciar sesión".into(),
+        )),
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err((async_imap::error::Error::No(_), _))) => Err(ImapError::Auth),
+        Ok(Err((e, _))) => Err(ImapError::Other(format!("Error al iniciar sesión: {e}"))),
+    }
+}
+
+struct XOAuth2 {
+    user: String,
+    token: String,
+}
+
+impl async_imap::Authenticator for XOAuth2 {
+    type Response = String;
+    fn process(&mut self, _challenge: &[u8]) -> Self::Response {
+        format!("user={}\x01auth=Bearer {}\x01\x01", self.user, self.token)
+    }
+}
+
 async fn open(p: &ImapParams<'_>) -> Result<Client<Box<dyn Stream>>> {
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((p.host, p.port)))
         .await

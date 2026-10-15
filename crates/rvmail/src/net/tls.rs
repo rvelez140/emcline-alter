@@ -12,8 +12,13 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
 }
 
 pub fn connector(allow_self_signed: bool) -> TlsConnector {
-    static STRICT: OnceLock<TlsConnector> = OnceLock::new();
-    static LAX: OnceLock<TlsConnector> = OnceLock::new();
+    TlsConnector::from(client_config(allow_self_signed))
+}
+
+/// Configuración rustls compartida (IMAP y clientes HTTP como reqwest).
+pub fn client_config(allow_self_signed: bool) -> Arc<ClientConfig> {
+    static STRICT: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+    static LAX: OnceLock<Arc<ClientConfig>> = OnceLock::new();
     let cell = if allow_self_signed { &LAX } else { &STRICT };
     cell.get_or_init(|| {
         let builder = ClientConfig::builder_with_provider(provider())
@@ -30,9 +35,19 @@ pub fn connector(allow_self_signed: bool) -> TlsConnector {
             };
             builder.with_root_certificates(roots).with_no_client_auth()
         };
-        TlsConnector::from(Arc::new(config))
+        Arc::new(config)
     })
     .clone()
+}
+
+/// Cliente HTTP (reqwest) con rustls/ring y raíces de Mozilla.
+pub fn http_client(allow_self_signed: bool) -> reqwest::Client {
+    reqwest::Client::builder()
+        .use_preconfigured_tls((*client_config(allow_self_signed)).clone())
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent(concat!("rvmail/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("cliente HTTP")
 }
 
 pub fn server_name(host: &str) -> anyhow::Result<ServerName<'static>> {

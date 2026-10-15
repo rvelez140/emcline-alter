@@ -81,5 +81,5 @@ de cada cuenta.
 
 Si subes el repo a GitHub, el workflow `.github/workflows/ci.yml` publica
 imágenes en GHCR al crear un tag `v0.1.0`. En el VPS puedes entonces usar
-`IMAGE_PREFIX=ghcr.io/<tu-usuario>/rvmail` y `APP_VERSION=0.1.0` en `.env`
+`IMAGE_PREFIX=ghcr.io/<tu-usuario>/rvmail` y `APP_VERSION=0.2.0` en `.env`
 y hacer `docker compose pull && docker compose up -d` en vez de compilar.

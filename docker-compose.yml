@@ -4,19 +4,26 @@
 #   Modo "external" (aaPanel/nginx ya usa 80/443): docker compose up -d
 #     → la app queda en 127.0.0.1:${HTTP_PORT} y tu proxy apunta ahí.
 #
-# Normalmente no se llama a mano: usa ./scripts/install.sh o `make up`.
+# Una sola imagen `rvmail` (binario Rust, amd64/arm64): el servicio `app` sirve
+# la API, el tiempo real, MCP y la web; `worker` sincroniza los buzones.
+# Funciona igual con Podman (`podman compose`). Normalmente no se llama a mano:
+# usa ./scripts/install.sh o `make up`.
 
 name: rvmail
 
 x-app-env: &app-env
-  NODE_ENV: production
+  RVMAIL_ENV: production
   DATABASE_URL: postgres://${POSTGRES_USER:-rvmail}:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rvmail}
   REDIS_URL: redis://:${REDIS_PASSWORD:?falta REDIS_PASSWORD}@redis:6379
   MASTER_KEY: ${MASTER_KEY:?falta MASTER_KEY}
   TZ: ${TZ:-America/Santo_Domingo}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_FORMAT: json
   IMAP_ALLOW_SELF_SIGNED: ${IMAP_ALLOW_SELF_SIGNED:-false}
   MAILSERVER_PROVIDER: ${MAILSERVER_PROVIDER:-none}
   MAILSERVER_HOSTNAME: ${MAILSERVER_HOSTNAME:-}
+  MAILSERVER_IMAP_PORT: ${MAILSERVER_IMAP_PORT:-993}
+  MAILSERVER_SMTP_PORT: ${MAILSERVER_SMTP_PORT:-465}
 
 # El servidor de correo (Postfix/Dovecot de aaPanel) y el panel corren en el
 # propio VPS: estos alias apuntan a la IP del host desde dentro de los contenedores.
@@ -31,6 +38,13 @@ x-logging: &logging
   options:
     max-size: "10m"
     max-file: "3"
+
+# Contenedores endurecidos: sin privilegios extra, sistema de archivos de solo lectura
+x-hardening: &hardening
+  read_only: true
+  tmpfs: ["/tmp"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
 
 services:
   caddy:
@@ -49,32 +63,23 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      web:
+      app:
         condition: service_healthy
     logging: *logging
 
-  web:
-    image: ${IMAGE_PREFIX:-rvmail}-web:${APP_VERSION:-latest}
+  app:
+    image: ${IMAGE_PREFIX:-rvmail}:${APP_VERSION:-latest}
     build:
       context: .
-      target: web
-    restart: unless-stopped
-    # En modo external solo escucha en localhost; el proxy del host publica el dominio
-    ports:
-      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8088}:80"
-    depends_on:
-      api:
-        condition: service_healthy
-    logging: *logging
-
-  api:
-    image: ${IMAGE_PREFIX:-rvmail}-api:${APP_VERSION:-latest}
-    build:
-      context: .
-      target: api
+      target: rvmail
       args:
         APP_VERSION: ${APP_VERSION:-latest}
+    command: ["api"]
     restart: unless-stopped
+    <<: *hardening
+    # En modo external solo escucha en localhost; el proxy del host publica el dominio
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8088}:3000"
     environment:
       <<: *app-env
       JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET}
@@ -82,18 +87,24 @@ services:
       APP_URL: https://${DOMAIN}
       SESSION_DAYS: ${SESSION_DAYS:-30}
       INSECURE_COOKIES: ${INSECURE_COOKIES:-false}
-      MAILSERVER_IMAP_PORT: ${MAILSERVER_IMAP_PORT:-993}
-      MAILSERVER_SMTP_PORT: ${MAILSERVER_SMTP_PORT:-465}
       AAPANEL_URL: ${AAPANEL_URL:-https://host.docker.internal:7800}
       AAPANEL_API_KEY: ${AAPANEL_API_KEY:-}
       AAPANEL_VERIFY_TLS: ${AAPANEL_VERIFY_TLS:-false}
       AGENT_SEND_LIMIT_PER_HOUR: ${AGENT_SEND_LIMIT_PER_HOUR:-30}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SSO_GOOGLE_CLIENT_ID: ${SSO_GOOGLE_CLIENT_ID:-}
+      SSO_GOOGLE_CLIENT_SECRET: ${SSO_GOOGLE_CLIENT_SECRET:-}
+      SSO_MICROSOFT_CLIENT_ID: ${SSO_MICROSOFT_CLIENT_ID:-}
+      SSO_MICROSOFT_CLIENT_SECRET: ${SSO_MICROSOFT_CLIENT_SECRET:-}
+      SSO_MICROSOFT_TENANT: ${SSO_MICROSOFT_TENANT:-common}
+      SSO_YAHOO_CLIENT_ID: ${SSO_YAHOO_CLIENT_ID:-}
+      SSO_YAHOO_CLIENT_SECRET: ${SSO_YAHOO_CLIENT_SECRET:-}
+      SSO_AUTO_SIGNUP: ${SSO_AUTO_SIGNUP:-false}
     extra_hosts: *host-access
     networks:
       default:
         # IP fija: es la que se añade a la lista blanca de la API de aaPanel
         ipv4_address: ${API_IP:-172.30.57.10}
+    mem_limit: ${APP_MEM_LIMIT:-256m}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,20 +113,32 @@ services:
     logging: *logging
 
   worker:
-    image: ${IMAGE_PREFIX:-rvmail}-worker:${APP_VERSION:-latest}
-    build:
-      context: .
-      target: worker
+    image: ${IMAGE_PREFIX:-rvmail}:${APP_VERSION:-latest}
+    command: ["worker"]
     restart: unless-stopped
+    <<: *hardening
     environment:
       <<: *app-env
       SYNC_DAYS: ${SYNC_DAYS:-90}
       SYNC_INTERVAL_SEC: ${SYNC_INTERVAL_SEC:-300}
       WORKER_MAX_ACCOUNTS: ${WORKER_MAX_ACCOUNTS:-500}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SSO_GOOGLE_CLIENT_ID: ${SSO_GOOGLE_CLIENT_ID:-}
+      SSO_GOOGLE_CLIENT_SECRET: ${SSO_GOOGLE_CLIENT_SECRET:-}
+      SSO_MICROSOFT_CLIENT_ID: ${SSO_MICROSOFT_CLIENT_ID:-}
+      SSO_MICROSOFT_CLIENT_SECRET: ${SSO_MICROSOFT_CLIENT_SECRET:-}
+      SSO_MICROSOFT_TENANT: ${SSO_MICROSOFT_TENANT:-common}
+      SSO_YAHOO_CLIENT_ID: ${SSO_YAHOO_CLIENT_ID:-}
+      SSO_YAHOO_CLIENT_SECRET: ${SSO_YAHOO_CLIENT_SECRET:-}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/rvmail", "healthcheck", "worker"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     extra_hosts: *host-access
+    mem_limit: ${WORKER_MEM_LIMIT:-256m}
     depends_on:
-      api:
+      app:
         condition: service_healthy # la API aplica las migraciones al arrancar
     logging: *logging
 
@@ -126,6 +149,20 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-rvmail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-rvmail}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-128MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE:-384MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-50}
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=4
+      - -c
+      - hot_standby=on
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -134,12 +171,13 @@ services:
       timeout: 5s
       retries: 10
     shm_size: 256mb
+    mem_limit: ${PG_MEM_LIMIT:-768m}
     logging: *logging
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -149,6 +187,7 @@ services:
       retries: 10
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+    mem_limit: ${REDIS_MEM_LIMIT:-320m}
     logging: *logging
 
 networks:

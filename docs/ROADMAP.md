@@ -31,10 +31,10 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 
 - [x] R1. Workspace Cargo (`crates/`): `rvmail-core` (config, BD con sqlx, cifrado compatible con el formato `v1:` actual, eventos Redis)
 - [x] R2. Worker en Rust (`rvmail worker`): leases en Redis, sincronización IMAP, IDLE, control por Redis; reemplaza `apps/worker`
-- [ ] R3. API en Rust (`rvmail api`, axum): auth/cookies, cuentas, correo, SSE, tokens, MCP, servidor de correo; mismos endpoints
-- [ ] R4. Migraciones con `sqlx migrate` (se conservan las SQL ya aplicadas) y retiro de NestJS/Drizzle
-- [ ] R5. Imagen única `rvmail` (distroless/scratch, amd64+arm64) que sirve también la web estática; compose simplificado
-- [ ] R6. Comparativa de consumo (RAM/CPU/imagen) Node vs Rust documentada
+- [x] R3. API en Rust (`rvmail api`, axum): auth/cookies, cuentas, correo, SSE, tokens, MCP, servidor de correo; mismos endpoints
+- [x] R4. Migraciones con `sqlx migrate` (se conservan las SQL ya aplicadas) y retiro de NestJS/Drizzle
+- [x] R5. Imagen única `rvmail` (distroless/scratch, amd64+arm64) que sirve también la web estática; compose simplificado
+- [x] R6. Comparativa de consumo (RAM/CPU/imagen) Node vs Rust documentada
 
 ## Fase S — Inicio de sesión y cuentas con Google, Microsoft y Yahoo
 - [ ] S1. SSO (OpenID Connect) para entrar a RV Mail: Google, Microsoft (Entra ID), Yahoo; botones en el login; vinculación por correo verificado

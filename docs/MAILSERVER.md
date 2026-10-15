@@ -59,7 +59,7 @@ Comprueba la conexión en **RV Mail → Configuración → Servidor de correo**.
 ## Verificación de la integración
 
 El adaptador usa las funciones del plugin `mail_sys` de aaPanel
-(`apps/api/src/mailserver/mailserver.service.ts`, constante `FN`):
+(`crates/rvmail/src/api/mailserver.rs`, `impl Provider`):
 `get_domains`, `add_domain_new`, `delete_domain`, `get_mailboxs`, `add_mailbox`,
 `update_mailbox`, `delete_mailbox`. aaPanel no publica la documentación de este
 plugin; si tu versión usa otros nombres o parámetros, compruébalos en el VPS:
@@ -68,7 +68,7 @@ plugin; si tu versión usa otros nombres o parámetros, compruébalos en el VPS:
 grep -n "def " /www/server/panel/plugin/mail_sys/mail_sys_main.py
 ```
 
-y ajusta la constante `FN`. En desarrollo, `node scripts/fake-aapanel.mjs` simula
+y ajusta el nombre en `impl Provider`. En desarrollo, `node scripts/fake-aapanel.mjs` simula
 la API (con firma real) sobre GreenMail.
 
 ## DNS de cada dominio

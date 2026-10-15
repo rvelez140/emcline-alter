@@ -53,3 +53,31 @@ pub struct Folder {
     pub total_count: i32,
     pub synced_at: Option<DateTime<Utc>>,
 }
+
+#[derive(Debug, Clone, FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub name: String,
+    pub password_hash: String,
+    pub role: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Ámbitos que puede tener un token de API (agentes de IA, integraciones).
+pub const API_SCOPES: [&str; 4] = ["mail:read", "mail:draft", "mail:send", "mail:modify"];
+
+#[derive(Debug, Clone, FromRow)]
+pub struct ApiToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub token_hash: String,
+    pub prefix: String,
+    pub scopes: sqlx::types::Json<Vec<String>>,
+    pub account_ids: Option<sqlx::types::Json<Vec<Uuid>>>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}

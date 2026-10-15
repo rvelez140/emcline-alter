@@ -1,5 +1,6 @@
 //! RV Mail — binario único: `rvmail worker`, `rvmail api`, `rvmail install`…
 
+mod api;
 mod net;
 mod worker;
 
@@ -22,6 +23,10 @@ struct Cli {
 enum Cmd {
     /// Sincronizador IMAP de todas las cuentas
     Worker,
+    /// API HTTP (REST, tiempo real, MCP) y web
+    Api,
+    /// Aplica las migraciones de la base de datos y termina
+    Migrate,
     /// Comprobación de salud para Docker/Podman (código de salida 0 = sano)
     Healthcheck {
         #[command(subcommand)]
@@ -33,6 +38,8 @@ enum Cmd {
 enum Health {
     /// El worker escribió su latido hace menos de 90 s
     Worker,
+    /// La API responde 200 en /api/health
+    Api,
 }
 
 fn init_logs() {
@@ -63,6 +70,14 @@ async fn main() -> Result<()> {
     init_logs();
     match cli.cmd {
         Cmd::Worker => worker::run().await,
+        Cmd::Api => api::run().await,
+        Cmd::Migrate => {
+            let core = rvmail_core::config::CoreConfig::from_env()?;
+            let db = rvmail_core::db::connect(&core.database_url, 2).await?;
+            api::migrate::run(&db).await?;
+            tracing::info!("migraciones aplicadas");
+            Ok(())
+        }
         Cmd::Healthcheck { .. } => unreachable!(),
     }
 }
@@ -81,6 +96,24 @@ fn healthcheck(what: &Health) -> i32 {
             } else {
                 1
             }
+        }
+        Health::Api => {
+            use std::io::{Read, Write};
+            let port = std::env::var("API_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(3000u16);
+            let check = || -> std::io::Result<bool> {
+                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+                let mut s =
+                    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3))?;
+                s.set_read_timeout(Some(std::time::Duration::from_secs(4)))?;
+                s.write_all(b"GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
+                let mut buf = [0u8; 64];
+                let n = s.read(&mut buf)?;
+                Ok(buf[..n].starts_with(b"HTTP/1.0 200") || buf[..n].starts_with(b"HTTP/1.1 200"))
+            };
+            i32::from(!check().unwrap_or(false))
         }
     }
 }

@@ -26,11 +26,11 @@ Detalles, aaPanel y respaldos: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Desarrollar
 
-Requisitos: Node 22+, pnpm (vía `corepack enable`), Docker.
+Requisitos: Rust estable (rustup), Node 22+ con pnpm (`corepack enable`) para la web, Docker.
 
 ```bash
 make dev-setup   # dependencias, .env.dev, postgres/redis/GreenMail, migraciones
-pnpm dev         # http://localhost:5173
+make dev         # api + worker (Rust) y web: http://localhost:5173
 ```
 
 Cuenta de prueba: `test1@rvmail.local` / `test1`, IMAP `localhost:3143`, SMTP `localhost:3025`, sin SSL.
@@ -41,11 +41,12 @@ Arquitectura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Guía para Claude 
 ## Estructura
 
 ```
-apps/api        API NestJS (auth, cuentas, mensajes, envío, tiempo real)
-crates/rvmail   Binario Rust: sincronizador IMAP (worker); api e instalador en migración
-apps/web        PWA React + Tailwind
-packages/db     Esquema y migraciones (Drizzle + PostgreSQL)
-packages/shared Cifrado y eventos compartidos
-deploy/         Caddy, nginx, aaPanel, cloud-init
-scripts/        Instalar, actualizar, respaldar, restaurar
+crates/rvmail       Binario Rust `rvmail`: api (REST, SSE, MCP, web), worker IMAP, migraciones
+crates/rvmail-core  Núcleo Rust compartido (config, cifrado, modelos, eventos)
+apps/web            PWA React + Tailwind
+deploy/             Caddy, aaPanel, cloud-init
+scripts/            Instalar, actualizar, respaldar, restaurar, desarrollo
 ```
+
+Backend en Rust: ~25 MB de RAM para api + worker (10 veces menos que la v0.1 en
+Node), una sola imagen para amd64 y ARM. Detalles: [docs/RUST.md](docs/RUST.md).

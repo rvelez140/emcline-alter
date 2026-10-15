@@ -1,46 +1,20 @@
 # syntax=docker/dockerfile:1.7
-# Imagen única multi-target: api, worker y web.
-# El worker es Rust: se compila de forma CRUZADA (sin emulación QEMU) para
-# amd64 y arm64 (Oracle Ampere A1, Raspberry Pi 4/5, Graviton…).
-#   docker build --target api    -t rvmail-api .
-#   docker build --target worker -t rvmail-worker .
-#   docker build --target web    -t rvmail-web .
+# Imagen única `rvmail`: binario Rust (api + worker + utilidades) + web compilada.
+#   docker build --target rvmail -t rvmail .
+# El binario se compila de forma CRUZADA (sin emulación QEMU) para amd64 y
+# arm64 (Oracle Ampere A1, Raspberry Pi 4/5, Graviton…); la web es la misma
+# para todas las arquitecturas, así que se compila una sola vez.
 
-ARG NODE_VERSION=22
-
-# ---------------------------------------------------------------- base
-FROM node:${NODE_VERSION}-bookworm-slim AS base
+# ---------------------------------------------------------------- web (PWA)
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web-build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
 WORKDIR /repo
-
-# ---------------------------------------------------------------- build
-FROM base AS build
-# argon2 compila binario nativo si no hay prebuild
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
-COPY packages/db/package.json packages/db/
-COPY packages/shared/package.json packages/shared/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-COPY . .
-ARG APP_VERSION=dev
-RUN pnpm -r run build
-RUN pnpm --filter @rvmail/api deploy --prod /out/api
-
-# ---------------------------------------------------------------- api
-FROM node:${NODE_VERSION}-bookworm-slim AS api
-ENV NODE_ENV=production
-ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
-WORKDIR /app
-COPY --from=build --chown=node:node /out/api ./
-USER node
-EXPOSE 3000
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "dist/main.js"]
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @rvmail/web
+COPY apps/web apps/web
+RUN pnpm --filter @rvmail/web build
 
 # ---------------------------------------------------------------- rust (compilación cruzada)
 FROM --platform=$BUILDPLATFORM rust:1-bookworm AS rust-build
@@ -61,6 +35,7 @@ ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+ARG APP_VERSION=dev
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
     --mount=type=cache,target=/src/target,id=cargo-target-$TARGETARCH \
     T="$(cat /rust-target)"; \
@@ -68,20 +43,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
     cargo build --release --locked --target "$T" -p rvmail \
  && cp "target/$T/release/rvmail" /rvmail
 
-# ---------------------------------------------------------------- worker (Rust)
-# distroless/cc: glibc + certificados, sin shell ni gestor de paquetes (~25 MB)
-FROM gcr.io/distroless/cc-debian12:nonroot AS worker
+# ---------------------------------------------------------------- imagen final
+# distroless/cc: glibc + certificados, sin shell ni gestor de paquetes
+FROM gcr.io/distroless/cc-debian12:nonroot AS rvmail
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION} \
+    RVMAIL_ENV=production \
+    WEB_DIR=/app/web \
+    WORKER_HEARTBEAT_FILE=/tmp/rvmail-worker.heartbeat
 COPY --from=rust-build /rvmail /usr/local/bin/rvmail
-ENV WORKER_HEARTBEAT_FILE=/tmp/rvmail-worker.heartbeat
-# El worker escribe un latido tras cada supervisión (cada 30 s); sin latido en 90 s = colgado
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD ["/usr/local/bin/rvmail", "healthcheck", "worker"]
+COPY --from=web-build /repo/apps/web/dist /app/web
+EXPOSE 3000
+# Por defecto comprueba la API; el servicio worker lo sobrescribe en compose
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD ["/usr/local/bin/rvmail", "healthcheck", "api"]
 ENTRYPOINT ["/usr/local/bin/rvmail"]
-CMD ["worker"]
-
-# ---------------------------------------------------------------- web
-FROM nginx:1.27-alpine AS web
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
-EXPOSE 80
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD wget -qO- http://127.0.0.1/healthz || exit 1
+CMD ["api"]
