@@ -55,11 +55,11 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] I5. Soporte Podman (Quadlet + `podman compose`) además de Docker
 
 ## Fase H — Alta disponibilidad: servidor principal + respaldo ARM (Oracle)
-- [ ] H1. Rol `primary`/`standby` en la instalación; red privada entre VPS con WireGuard
-- [ ] H2. Réplica de Postgres en streaming hacia el respaldo (solo lectura) + backups cifrados (restic) a Oracle Object Storage/S3
-- [ ] H3. MX secundario en el respaldo (Postfix en cola) para no perder correo si cae el principal; réplica de buzones (dsync) opcional
-- [ ] H4. `rvmail failover promote` y guía de conmutación (DNS / Cloudflare health checks); `rvmail doctor` revisa la réplica
-- [ ] H5. Perfil de recursos para VPS pequeños (límites de memoria, Postgres/Redis afinados, `WORKER_MAX_ACCOUNTS`)
+- [x] H1. Rol `primary`/`standby` en la instalación; red privada entre VPS con WireGuard
+- [x] H2. Réplica de Postgres en streaming hacia el respaldo (solo lectura) + backups cifrados (restic) a Oracle Object Storage/S3
+- [x] H3. Continuidad del correo: sin MX secundario (los remitentes reintentan 4–5 días y un MX de respaldo atrae spam); buzones y configuración de Stalwart en restic y `failover promote --restore-mail`
+- [x] H4. `rvmail failover promote` y guía de conmutación (DNS / Cloudflare health checks); `rvmail doctor` revisa la réplica
+- [x] H5. Perfil de recursos para VPS pequeños (límites de memoria, Postgres/Redis afinados, `WORKER_MAX_ACCOUNTS`)
 
 ## Fase C — Clientes nativos y cliente en Rust
 - [ ] C1. API para apps nativas: tokens de sesión con refresh, CORS controlado, `/.well-known/rvmail` (descubrimiento del servidor)

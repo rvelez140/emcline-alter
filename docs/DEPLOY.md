@@ -45,11 +45,19 @@ curl -fsSL …/get.sh | sudo sh -s -- --domain correo.solucionesrv.net \
 | Diagnóstico completo | `rvmail doctor` (DNS, HTTPS, puertos, MX/SPF/DMARC/PTR, salida por el 25, respaldos) |
 | Actualizar (binario + imágenes, con respaldo previo) | `sudo rvmail update` |
 | Respaldo | `sudo rvmail backup` (`--with-mail` incluye los buzones de Stalwart) |
-| Restaurar | `sudo rvmail restore backups/rvmail-AAAAMMDD-HHMMSS.dump` |
+| Restaurar | `sudo rvmail restore backups/rvmail-AAAAMMDD-HHMMSS.dump` (`--mail`: buzones de Stalwart desde restic) |
+| Respaldos fuera del servidor y cron | `sudo rvmail config backup` |
+| Réplica y conmutación | `rvmail ha init` · `ha join` · `ha status` · `failover promote` ([HA.md](HA.md)) |
 
 `rvmail config` guarda el `.env` (permisos 600) y aplica el cambio: compose
 recrea solo los contenedores afectados. Usa `--no-apply` para solo guardar.
 Si el `.env` no está en `/opt/rvmail`, pasa `--dir` o ejecuta desde esa carpeta.
+
+## Servidor de respaldo (alta disponibilidad)
+
+Principal + respaldo (p. ej. un VPS ARM de Oracle) con réplica de Postgres en
+streaming por WireGuard, respaldos cifrados en Oracle Object Storage y
+`rvmail failover promote`: [HA.md](HA.md).
 
 ## Podman
 

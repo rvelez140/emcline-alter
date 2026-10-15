@@ -10,6 +10,7 @@ dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 - App instalable (PWA) en iPhone, Android, Windows y Linux
 - Entrar con **Google, Microsoft o Yahoo** y conectar Gmail/Outlook/Yahoo sin contraseñas de aplicación ([docs/SSO.md](docs/SSO.md))
 - Contraseñas y tokens de cuentas cifrados (AES-256-GCM)
+- **Servidor de respaldo** (p. ej. ARM de Oracle) con réplica en streaming por WireGuard, respaldos cifrados en Oracle Object Storage y conmutación con `rvmail failover promote` ([docs/HA.md](docs/HA.md))
 - **Servidor de correo integrado**: administra dominios y buzones del Mail Server de aaPanel o de **Stalwart** del mismo VPS, con verificación DNS ([docs/MAILSERVER.md](docs/MAILSERVER.md))
 - **Agentes de IA**: servidor MCP para que Claude u otros agentes lean, redacten y envíen correo, con tokens de permisos limitados ([docs/AI-AGENT.md](docs/AI-AGENT.md))
 - Instalación en una línea con Docker o Podman (amd64 y ARM) y administración con el CLI `rvmail` (config, doctor, update, backup); convive con aaPanel y lo detecta solo
