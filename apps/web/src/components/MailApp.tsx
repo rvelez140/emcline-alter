@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Menu, PenSquare, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, MessageFull, Special, takeSsoNotice, User } from '../api';
+import { parseMailto } from '../native';
 import { useLiveEvents } from '../useLiveEvents';
 import { AccountDialog } from './AccountDialog';
 import { Compose, ComposeDraft } from './Compose';
@@ -32,6 +33,21 @@ export function MailApp({ user }: { user: User }) {
   const [notice, setNotice] = useState(() => takeSsoNotice());
 
   const hasAccounts = (accounts.data?.length ?? 0) > 0;
+
+  // Enlaces mailto: (manejador del navegador o de la app de escritorio) → redactar
+  const firstAccount = accounts.data?.[0]?.id;
+  useEffect(() => {
+    const raw = new URLSearchParams(location.search).get('mailto');
+    const m = raw ? parseMailto(raw) : null;
+    if (!m || !firstAccount) return;
+    history.replaceState(null, '', '/');
+    setCompose({
+      accountId: firstAccount,
+      to: [m.to, m.cc].filter(Boolean).join(', '),
+      subject: m.subject,
+      body: m.body,
+    });
+  }, [firstAccount]);
 
   function select(s: Selection) {
     setSelection(s);

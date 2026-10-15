@@ -1,4 +1,5 @@
 import { SsoProvider, ssoStart } from '../api';
+import { isNativeApp, nativeSsoLogin } from '../native';
 
 /** Logotipos simplificados de cada proveedor (SVG en línea, sin peticiones externas). */
 function Logo({ id }: { id: SsoProvider['id'] }) {
@@ -61,7 +62,12 @@ export function SsoButtons({
           key={p.id}
           type="button"
           className="btn w-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-          onClick={() => ssoStart(p.id, mode)}
+          onClick={() =>
+            // En la app de escritorio el inicio de sesión va por el navegador del sistema
+            isNativeApp() && mode === 'login'
+              ? void nativeSsoLogin(p.id).catch((e: Error) => alert(e.message))
+              : ssoStart(p.id, mode)
+          }
         >
           <Logo id={p.id} />
           {label(p.name)}

@@ -39,6 +39,7 @@ pub fn routes() -> Router<Shared> {
         .route("/auth/token/refresh", post(refresh))
         .route("/auth/token/revoke", post(revoke))
         .route("/auth/token/exchange", post(exchange))
+        .route("/auth/token/web", get(web_session))
         .route("/auth/sessions", get(list))
         .route("/auth/sessions/{id}", delete(remove))
 }
@@ -225,28 +226,55 @@ async fn exchange(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Body(i): Body<ExchangeInput>,
 ) -> ApiResult<Json<Value>> {
-    let invalid =
-        || ApiError::unauthorized("El código caducó o no es válido; vuelve a iniciar sesión");
-    let mut r = st.redis.clone();
-    let raw: Option<String> = redis::cmd("GETDEL")
-        .arg(format!("rvmail:appcode:{}", i.code))
-        .query_async(&mut r)
-        .await?;
-    let code: AppCode = raw
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .ok_or_else(invalid)?;
-    // PKCE: solo la app que inició el flujo conoce el verificador
-    if crate::oauth::pkce_challenge(&i.code_verifier) != code.challenge {
-        return Err(invalid());
-    }
-    let user: Option<User> = sqlx::query_as("select * from users where id = $1")
-        .bind(code.user_id)
-        .fetch_optional(&st.db)
-        .await?;
-    let user = user.ok_or_else(invalid)?;
+    let user = take_code(&st, &i.code, &i.code_verifier)
+        .await?
+        .ok_or_else(|| {
+            ApiError::unauthorized("El código caducó o no es válido; vuelve a iniciar sesión")
+        })?;
     Ok(Json(
         open_session(&st, &user, i.device_name, i.platform, &headers, Some(peer)).await?,
     ))
+}
+
+/// Canjea (una sola vez) el código del SSO de una app. PKCE: solo la app que
+/// inició el flujo conoce el verificador.
+async fn take_code(st: &Shared, code: &str, verifier: &str) -> ApiResult<Option<User>> {
+    let mut r = st.redis.clone();
+    let raw: Option<String> = redis::cmd("GETDEL")
+        .arg(format!("rvmail:appcode:{code}"))
+        .query_async(&mut r)
+        .await?;
+    let Some(code) = raw.and_then(|s| serde_json::from_str::<AppCode>(&s).ok()) else {
+        return Ok(None);
+    };
+    if crate::oauth::pkce_challenge(verifier) != code.challenge {
+        return Ok(None);
+    }
+    Ok(sqlx::query_as("select * from users where id = $1")
+        .bind(code.user_id)
+        .fetch_optional(&st.db)
+        .await?)
+}
+
+#[derive(Deserialize)]
+struct WebQuery {
+    code: String,
+    code_verifier: String,
+}
+
+/// La app de escritorio muestra la web del servidor: tras el SSO en el navegador
+/// del sistema, abre esta URL en su ventana para quedar con la sesión iniciada.
+async fn web_session(
+    State(st): State<Shared>,
+    jar: axum_extra::extract::cookie::CookieJar,
+    axum::extract::Query(q): axum::extract::Query<WebQuery>,
+) -> axum::response::Response {
+    use axum::response::{IntoResponse, Redirect};
+    match take_code(&st, &q.code, &q.code_verifier).await {
+        Ok(Some(user)) => (auth::login_cookie(&st, jar, &user), Redirect::to("/")).into_response(),
+        _ => Redirect::to("/?sso_error=El%20inicio%20de%20sesi%C3%B3n%20caduc%C3%B3%3B%20int%C3%A9ntalo%20otra%20vez")
+            .into_response(),
+    }
 }
 
 async fn list(State(st): State<Shared>, Session(u): Session) -> ApiResult<Json<Value>> {

@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { notify } from './native';
 
 /**
  * Escucha /api/events (SSE) y refresca los datos afectados.
@@ -18,9 +19,7 @@ export function useLiveEvents() {
     es.addEventListener('message.new', (ev) => {
       refreshMail();
       const data = JSON.parse((ev as MessageEvent).data) as { count: number };
-      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('RV Mail', { body: `${data.count} mensaje(s) nuevo(s)`, icon: '/icon-192.png' });
-      }
+      if (document.hidden) notify('RV Mail', `${data.count} mensaje(s) nuevo(s)`);
     });
     es.addEventListener('message.updated', refreshMail);
     es.addEventListener('folder.updated', refreshMail);

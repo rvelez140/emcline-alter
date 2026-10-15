@@ -12,8 +12,9 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Account, api, Folder, Special, User } from '../api';
+import { setUnread } from '../native';
 import type { Selection } from './MailApp';
 
 const UNIFIED: Array<{ special: Special; label: string; icon: ReactNode; use: string }> = [
@@ -51,6 +52,9 @@ export function Sidebar({
   const all = folders.data ?? [];
 
   const unreadFor = (use: string) => all.filter((f) => f.specialUse === use).reduce((n, f) => n + f.unreadCount, 0);
+  const inboxUnread = unreadFor('\\Inbox');
+  // Contador en la bandeja del sistema (app de escritorio)
+  useEffect(() => setUnread(inboxUnread), [inboxUnread]);
 
   const isUnified = (s: Special) => selection.kind === 'unified' && selection.special === s && !selection.accountId;
 

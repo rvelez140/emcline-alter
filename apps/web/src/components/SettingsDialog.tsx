@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { FormEvent, ReactNode, useState } from 'react';
 import { Account, api, ApiScope, DnsCheck, formatDate, User } from '../api';
+import { isNativeApp, registerMailtoHandler } from '../native';
 import { SsoButtons } from './SsoButtons';
 
 type Tab = 'ai' | 'login' | 'mailserver';
@@ -211,6 +212,11 @@ function Devices() {
         </div>
       ))}
       {revoke.isError && <p className="text-red-600">{(revoke.error as Error).message}</p>}
+      {!isNativeApp() && 'registerProtocolHandler' in navigator && (
+        <button className="btn-ghost mt-2" onClick={registerMailtoHandler}>
+          Abrir los enlaces de correo (mailto:) con RV Mail en este navegador
+        </button>
+      )}
     </div>
   );
 }

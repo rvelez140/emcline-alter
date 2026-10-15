@@ -8,6 +8,8 @@ export type ComposeDraft = {
   to?: string;
   subject?: string;
   html?: string;
+  /** Texto inicial (p. ej. de un enlace mailto:) */
+  body?: string;
   inReplyToMessageId?: string;
 };
 
@@ -31,7 +33,7 @@ export function Compose({
   const [bcc, setBcc] = useState('');
   const [showCc, setShowCc] = useState(false);
   const [subject, setSubject] = useState(draft.subject ?? '');
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(draft.body ?? '');
 
   const send = useMutation({
     mutationFn: () =>
