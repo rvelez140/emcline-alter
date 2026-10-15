@@ -2,6 +2,7 @@
 
 mod api;
 mod net;
+mod oauth;
 mod worker;
 
 use anyhow::Result;

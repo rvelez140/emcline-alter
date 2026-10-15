@@ -50,8 +50,7 @@ export function Sidebar({
   const folders = useQuery({ queryKey: ['folders'], queryFn: api.folders, enabled: accounts.length > 0 });
   const all = folders.data ?? [];
 
-  const unreadFor = (use: string) =>
-    all.filter((f) => f.specialUse === use).reduce((n, f) => n + f.unreadCount, 0);
+  const unreadFor = (use: string) => all.filter((f) => f.specialUse === use).reduce((n, f) => n + f.unreadCount, 0);
 
   const isUnified = (s: Special) => selection.kind === 'unified' && selection.special === s && !selection.accountId;
 

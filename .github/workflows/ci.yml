@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm build
       - name: Validar docker-compose
         run: make prod-config

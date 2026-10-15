@@ -37,9 +37,10 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [x] R6. Comparativa de consumo (RAM/CPU/imagen) Node vs Rust documentada
 
 ## Fase S — Inicio de sesión y cuentas con Google, Microsoft y Yahoo
-- [ ] S1. SSO (OpenID Connect) para entrar a RV Mail: Google, Microsoft (Entra ID), Yahoo; botones en el login; vinculación por correo verificado
-- [ ] S2. Cuentas de correo por OAuth2 (XOAUTH2 en IMAP/SMTP) con refresco automático de tokens: Gmail, Outlook/M365, Yahoo
-- [ ] S3. Configuración de proveedores desde el instalador/panel (client id/secret cifrados), guía de registro de apps
+- [x] S1. SSO (OpenID Connect) para entrar a RV Mail: Google, Microsoft (Entra ID), Yahoo; botones en el login; vinculación por correo verificado
+- [x] S2. Cuentas de correo por OAuth2 (XOAUTH2 en IMAP/SMTP) con refresco automático de tokens: Gmail, Outlook/M365, Yahoo
+- [x] S3a. Guía de registro de apps (docs/SSO.md) y configuración por `.env`
+- [ ] S3b. Configurar proveedores desde `rvmail config` (fase I)
 
 ## Fase J — JMAP (el protocolo moderno de correo)
 - [ ] J1. Cliente JMAP (RFC 8620/8621) en el worker: sesión, Mailbox/Email/changes, push (EventSource) — cuentas `protocol = jmap`

@@ -72,6 +72,7 @@ pub async fn imap(st: &Shared, c: &Conn) -> Result<ImapSession, ImapError> {
             imapnet::connect_xoauth2(
                 &c.imap_host,
                 c.imap_port,
+                c.imap_secure,
                 &c.username,
                 token,
                 st.core.allow_self_signed,

@@ -1,14 +1,27 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { Account, api } from '../api';
+import { Account, api, ssoStart } from '../api';
+import { SsoButtons } from './SsoButtons';
 
 /**
  * Proveedores comunes. El autodescubrimiento completo (autoconfig/SRV/MX)
  * y OAuth para Gmail/Microsoft están en el roadmap.
  */
-const PRESETS: Record<string, { label: string; imap: [string, number, boolean]; smtp: [string, number, boolean]; hint?: string }> = {
-  custom: { label: 'Otro / servidor propio', imap: ['', 993, true], smtp: ['', 465, true] },
+const PRESETS: Record<
+  string,
+  {
+    label: string;
+    imap: [string, number, boolean];
+    smtp: [string, number, boolean];
+    hint?: string;
+  }
+> = {
+  custom: {
+    label: 'Otro / servidor propio',
+    imap: ['', 993, true],
+    smtp: ['', 465, true],
+  },
   gmail: {
     label: 'Gmail',
     imap: ['imap.gmail.com', 993, true],
@@ -21,8 +34,16 @@ const PRESETS: Record<string, { label: string; imap: [string, number, boolean]; 
     smtp: ['smtp.office365.com', 587, false],
     hint: 'Microsoft está retirando la autenticación básica; para cuentas de M365 se usará OAuth (roadmap).',
   },
-  yahoo: { label: 'Yahoo', imap: ['imap.mail.yahoo.com', 993, true], smtp: ['smtp.mail.yahoo.com', 465, true] },
-  icloud: { label: 'iCloud', imap: ['imap.mail.me.com', 993, true], smtp: ['smtp.mail.me.com', 587, false] },
+  yahoo: {
+    label: 'Yahoo',
+    imap: ['imap.mail.yahoo.com', 993, true],
+    smtp: ['smtp.mail.yahoo.com', 465, true],
+  },
+  icloud: {
+    label: 'iCloud',
+    imap: ['imap.mail.me.com', 993, true],
+    smtp: ['smtp.mail.me.com', 587, false],
+  },
 };
 
 const COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#db2777', '#4b5563'];
@@ -30,6 +51,12 @@ const COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2'
 export function AccountDialog({ account, onClose }: { account?: Account; onClose: () => void }) {
   const qc = useQueryClient();
   const editing = !!account;
+  const isOAuth = account?.authType === 'oauth2';
+  // Gmail / Outlook / Yahoo sin contraseñas de aplicación (si el administrador configuró OAuth)
+  const oauth = useQuery({
+    queryKey: ['oauth-providers'],
+    queryFn: api.oauthProviders,
+  });
   const [preset, setPreset] = useState('custom');
   const [f, setF] = useState({
     displayName: account?.displayName ?? '',
@@ -67,7 +94,13 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
     if (!editing && preset === 'custom' && !f.imapHost) {
       const domain = email.split('@')[1];
       if (domain && domain.includes('.')) {
-        setF((s) => ({ ...s, email, username: email, imapHost: `mail.${domain}`, smtpHost: `mail.${domain}` }));
+        setF((s) => ({
+          ...s,
+          email,
+          username: email,
+          imapHost: `mail.${domain}`,
+          smtpHost: `mail.${domain}`,
+        }));
       }
     }
   }
@@ -137,6 +170,46 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
         </div>
 
         <div className="space-y-4 overflow-y-auto p-4">
+          {!editing && (oauth.data?.length ?? 0) > 0 && (
+            <div className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Recomendado para Gmail, Outlook/Microsoft 365 y Yahoo: sin contraseñas de aplicación.
+              </p>
+              <SsoButtons providers={oauth.data ?? []} mode="account" label={(n) => `Conectar con ${n}`} />
+              <p className="pt-1 text-center text-xs text-slate-400">o configura la cuenta manualmente:</p>
+            </div>
+          )}
+
+          {isOAuth && (
+            <div className="space-y-2 rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+              <p>
+                Esta cuenta está conectada con <b>OAuth</b> ({account?.imapHost}
+                ). No guarda tu contraseña.
+              </p>
+              {account?.status === 'auth_error' && (
+                <p className="text-amber-700 dark:text-amber-300">
+                  El proveedor revocó el acceso: vuelve a conectarla.
+                </p>
+              )}
+              {(oauth.data ?? [])
+                .filter((p) =>
+                  account?.imapHost.includes(
+                    p.id === 'microsoft' ? 'office365' : p.id === 'google' ? 'gmail' : 'yahoo',
+                  ),
+                )
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="btn-ghost border border-slate-300 dark:border-slate-700"
+                    onClick={() => ssoStart(p.id, 'account')}
+                  >
+                    Reconectar con {p.name}
+                  </button>
+                ))}
+            </div>
+          )}
+
           {!editing && (
             <div>
               <label className="label">Proveedor</label>
@@ -153,7 +226,12 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Nombre a mostrar">
-              <input className="input" value={f.displayName} onChange={(e) => set('displayName', e.target.value)} required />
+              <input
+                className="input"
+                value={f.displayName}
+                onChange={(e) => set('displayName', e.target.value)}
+                required
+              />
             </Field>
             <Field label="Correo">
               <input
@@ -165,19 +243,28 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
                 required
               />
             </Field>
-            <Field label="Usuario">
-              <input className="input" value={f.username} onChange={(e) => set('username', e.target.value)} required />
-            </Field>
-            <Field label={editing ? 'Contraseña (vacío = no cambiar)' : 'Contraseña'}>
-              <input
-                className="input"
-                type="password"
-                autoComplete="new-password"
-                value={f.password}
-                onChange={(e) => set('password', e.target.value)}
-                required={!editing}
-              />
-            </Field>
+            {!isOAuth && (
+              <Field label="Usuario">
+                <input
+                  className="input"
+                  value={f.username}
+                  onChange={(e) => set('username', e.target.value)}
+                  required
+                />
+              </Field>
+            )}
+            {!isOAuth && (
+              <Field label={editing ? 'Contraseña (vacío = no cambiar)' : 'Contraseña'}>
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={f.password}
+                  onChange={(e) => set('password', e.target.value)}
+                  required={!editing}
+                />
+              </Field>
+            )}
           </div>
 
           {managed && (
@@ -187,26 +274,56 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
             </p>
           )}
 
-          <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
-            <legend className="label">Entrante (IMAP)</legend>
-            <input className="input" placeholder="imap.dominio.com" value={f.imapHost} onChange={(e) => set('imapHost', e.target.value)} required />
-            <input className="input" type="number" value={f.imapPort} onChange={(e) => set('imapPort', Number(e.target.value))} required />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={f.imapSecure} onChange={(e) => set('imapSecure', e.target.checked)} /> SSL/TLS
-            </label>
-          </fieldset>
+          {!isOAuth && (
+            <>
+              <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
+                <legend className="label">Entrante (IMAP)</legend>
+                <input
+                  className="input"
+                  placeholder="imap.dominio.com"
+                  value={f.imapHost}
+                  onChange={(e) => set('imapHost', e.target.value)}
+                  required
+                />
+                <input
+                  className="input"
+                  type="number"
+                  value={f.imapPort}
+                  onChange={(e) => set('imapPort', Number(e.target.value))}
+                  required
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={f.imapSecure} onChange={(e) => set('imapSecure', e.target.checked)} />{' '}
+                  SSL/TLS
+                </label>
+              </fieldset>
 
-          <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
-            <legend className="label">Saliente (SMTP)</legend>
-            <input className="input" placeholder="smtp.dominio.com" value={f.smtpHost} onChange={(e) => set('smtpHost', e.target.value)} required />
-            <input className="input" type="number" value={f.smtpPort} onChange={(e) => set('smtpPort', Number(e.target.value))} required />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={f.smtpSecure} onChange={(e) => set('smtpSecure', e.target.checked)} /> SSL/TLS
-            </label>
-          </fieldset>
-          <p className="text-xs text-slate-500">
-            Puerto 465 = SSL/TLS activado. Puerto 587 = STARTTLS (deja SSL/TLS desactivado).
-          </p>
+              <fieldset className="grid gap-3 sm:grid-cols-[1fr_6rem_auto]">
+                <legend className="label">Saliente (SMTP)</legend>
+                <input
+                  className="input"
+                  placeholder="smtp.dominio.com"
+                  value={f.smtpHost}
+                  onChange={(e) => set('smtpHost', e.target.value)}
+                  required
+                />
+                <input
+                  className="input"
+                  type="number"
+                  value={f.smtpPort}
+                  onChange={(e) => set('smtpPort', Number(e.target.value))}
+                  required
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={f.smtpSecure} onChange={(e) => set('smtpSecure', e.target.checked)} />{' '}
+                  SSL/TLS
+                </label>
+              </fieldset>
+              <p className="text-xs text-slate-500">
+                Puerto 465 = SSL/TLS activado. Puerto 587 = STARTTLS (deja SSL/TLS desactivado).
+              </p>
+            </>
+          )}
 
           <div>
             <label className="label">Color de la cuenta</label>
@@ -237,7 +354,9 @@ export function AccountDialog({ account, onClose }: { account?: Account; onClose
             <button
               type="button"
               className="btn-ghost text-red-600"
-              onClick={() => confirm('¿Quitar esta cuenta de RV Mail? No se borra nada del servidor de correo.') && remove.mutate()}
+              onClick={() =>
+                confirm('¿Quitar esta cuenta de RV Mail? No se borra nada del servidor de correo.') && remove.mutate()
+              }
             >
               Quitar cuenta
             </button>

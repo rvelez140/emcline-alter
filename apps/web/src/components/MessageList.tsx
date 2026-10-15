@@ -32,7 +32,9 @@ export function MessageList({ selection, search, selectedId, onOpen }: Props) {
   if (!items.length) {
     return (
       <p className="p-6 text-center text-sm text-slate-500">
-        {q ? 'No hay resultados para tu búsqueda.' : 'No hay mensajes aquí. Si acabas de agregar la cuenta, la sincronización puede tardar unos minutos.'}
+        {q
+          ? 'No hay resultados para tu búsqueda.'
+          : 'No hay mensajes aquí. Si acabas de agregar la cuenta, la sincronización puede tardar unos minutos.'}
       </p>
     );
   }
@@ -55,7 +57,11 @@ export function MessageList({ selection, search, selectedId, onOpen }: Props) {
               selectedId === m.id ? 'bg-brand-50 dark:bg-brand-700/20' : 'hover:bg-slate-100 dark:hover:bg-slate-900'
             }`}
           >
-            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: m.accountColor }} title={m.accountEmail} />
+            <span
+              className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+              style={{ background: m.accountColor }}
+              title={m.accountEmail}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className={`flex-1 truncate text-sm ${m.seen ? '' : 'font-semibold'}`}>

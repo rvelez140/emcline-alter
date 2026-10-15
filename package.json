@@ -12,7 +12,11 @@
     "dev:web": "pnpm --filter @rvmail/web dev",
     "build": "pnpm --filter @rvmail/web build",
     "typecheck": "pnpm --filter @rvmail/web typecheck",
-    "lint": "pnpm --filter @rvmail/web typecheck",
-    "db:migrate": "cargo run -q -p rvmail -- migrate"
+    "lint": "pnpm --filter @rvmail/web typecheck && prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
+    "db:migrate": "cargo run -q -p rvmail -- migrate",
+    "format": "prettier --write \"apps/web/src/**/*.{ts,tsx,css}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0"
   }
 }

@@ -14,6 +14,8 @@ pub struct AppState {
     pub core: CoreConfig,
     pub cfg: ApiConfig,
     pub mailserver: MailServerService,
+    /// Cliente HTTP con TLS estricto (OAuth/OIDC)
+    pub http: reqwest::Client,
     /// Eventos de Redis (`rvmail:events:<user>`) repartidos en memoria a cada SSE
     pub events: broadcast::Sender<(Uuid, String)>,
 }

@@ -18,6 +18,16 @@ export type Account = {
   lastSyncAt: string | null;
   signatureHtml: string | null;
   source: 'external' | 'mailserver';
+  authType: 'password' | 'oauth2';
+};
+
+export type SsoProvider = { id: 'google' | 'microsoft' | 'yahoo'; name: string };
+export type LinkedIdentity = {
+  id: string;
+  provider: SsoProvider['id'];
+  email: string | null;
+  createdAt: string;
+  lastLoginAt: string | null;
 };
 
 export type Folder = {
@@ -79,7 +89,13 @@ export type MailServerStatus = {
   domains?: number;
 };
 export type MailDomain = { domain: string; mailboxes: number | null; quotaGb: number | null; createdAt: string | null };
-export type Mailbox = { email: string; fullName: string; quotaGb: number | null; active: boolean; createdAt: string | null };
+export type Mailbox = {
+  email: string;
+  fullName: string;
+  quotaGb: number | null;
+  active: boolean;
+  createdAt: string | null;
+};
 export type DnsCheck = {
   domain: string;
   serverHost: string;
@@ -88,7 +104,15 @@ export type DnsCheck = {
 };
 export type AutoConfig =
   | { managed: false }
-  | { managed: true; imapHost: string; imapPort: number; imapSecure: boolean; smtpHost: string; smtpPort: number; smtpSecure: boolean };
+  | {
+      managed: true;
+      imapHost: string;
+      imapPort: number;
+      imapSecure: boolean;
+      smtpHost: string;
+      smtpPort: number;
+      smtpSecure: boolean;
+    };
 
 export type Special = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive';
 
@@ -118,7 +142,14 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
-  setup: () => request<{ needsSetup: boolean; allowSignup: boolean; mailboxLogin: boolean }>('GET', '/auth/setup'),
+  setup: () =>
+    request<{ needsSetup: boolean; allowSignup: boolean; mailboxLogin: boolean; sso: SsoProvider[] }>(
+      'GET',
+      '/auth/setup',
+    ),
+  identities: () => request<{ identities: LinkedIdentity[]; providers: SsoProvider[] }>('GET', '/auth/identities'),
+  unlinkIdentity: (id: string) => request<void>('DELETE', `/auth/identities/${id}`),
+  oauthProviders: () => request<SsoProvider[]>('GET', '/oauth/providers'),
   me: () => request<User>('GET', '/auth/me'),
   login: (email: string, password: string) => request<User>('POST', '/auth/login', { email, password }),
   register: (name: string, email: string, password: string) =>
@@ -152,16 +183,24 @@ export const api = {
   }) => request<{ messageId: string }>('POST', '/send', input),
 
   tokens: () => request<ApiToken[]>('GET', '/tokens'),
-  createToken: (input: { name: string; scopes: ApiScope[]; accountIds: string[] | null; expiresInDays: number | null }) =>
+  createToken: (input: {
+    name: string;
+    scopes: ApiScope[];
+    accountIds: string[] | null;
+    expiresInDays: number | null;
+  }) =>
     request<{ id: string; name: string; prefix: string; scopes: ApiScope[]; token: string }>('POST', '/tokens', input),
   revokeToken: (id: string) => request<void>('DELETE', `/tokens/${id}`),
 
-  autoconfig: (email: string) => request<AutoConfig>('GET', `/mailserver/autoconfig?email=${encodeURIComponent(email)}`),
+  autoconfig: (email: string) =>
+    request<AutoConfig>('GET', `/mailserver/autoconfig?email=${encodeURIComponent(email)}`),
   mailserver: {
     status: () => request<MailServerStatus>('GET', '/admin/mailserver'),
     domains: () => request<MailDomain[]>('GET', '/admin/mailserver/domains'),
-    addDomain: (domain: string) => request<{ domain: string; dns: DnsCheck }>('POST', '/admin/mailserver/domains', { domain }),
-    deleteDomain: (domain: string) => request<void>('DELETE', `/admin/mailserver/domains/${encodeURIComponent(domain)}`),
+    addDomain: (domain: string) =>
+      request<{ domain: string; dns: DnsCheck }>('POST', '/admin/mailserver/domains', { domain }),
+    deleteDomain: (domain: string) =>
+      request<void>('DELETE', `/admin/mailserver/domains/${encodeURIComponent(domain)}`),
     dns: (domain: string) => request<DnsCheck>('GET', `/admin/mailserver/domains/${encodeURIComponent(domain)}/dns`),
     mailboxes: (domain: string) =>
       request<Mailbox[]>('GET', `/admin/mailserver/domains/${encodeURIComponent(domain)}/mailboxes`),
@@ -173,10 +212,18 @@ export const api = {
       quotaGb: number;
       link: 'none' | 'me' | 'user' | 'new_user';
       userId?: string;
-    }) => request<{ email: string; linkedUserId: string | null; password?: string }>('POST', '/admin/mailserver/mailboxes', input),
-    updateMailbox: (email: string, patch: { password?: string; fullName?: string; quotaGb?: number; active?: boolean }) =>
-      request<{ email: string }>('PATCH', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`, patch),
-    deleteMailbox: (email: string) => request<void>('DELETE', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`),
+    }) =>
+      request<{ email: string; linkedUserId: string | null; password?: string }>(
+        'POST',
+        '/admin/mailserver/mailboxes',
+        input,
+      ),
+    updateMailbox: (
+      email: string,
+      patch: { password?: string; fullName?: string; quotaGb?: number; active?: boolean },
+    ) => request<{ email: string }>('PATCH', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`, patch),
+    deleteMailbox: (email: string) =>
+      request<void>('DELETE', `/admin/mailserver/mailboxes/${encodeURIComponent(email)}`),
   },
 };
 
@@ -197,4 +244,24 @@ export function formatDate(iso: string): string {
     return d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
   }
   return d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Inicia el flujo OAuth/OIDC (navegación completa: el proveedor vuelve a la web). */
+export function ssoStart(provider: string, mode: 'login' | 'link' | 'account') {
+  location.href = `/api/auth/sso/${provider}/start?mode=${mode}`;
+}
+
+/** Lee y limpia de la URL los avisos que deja el retorno del SSO. */
+export function takeSsoNotice(): { error?: string; ok?: string } | null {
+  const q = new URLSearchParams(location.search);
+  const error = q.get('sso_error') ?? undefined;
+  const ok =
+    q.get('sso') === 'linked'
+      ? 'Cuenta vinculada'
+      : q.get('account') === 'added'
+        ? 'Cuenta de correo conectada'
+        : undefined;
+  if (!error && !ok) return null;
+  history.replaceState(null, '', location.pathname);
+  return { error, ok };
 }

@@ -1,14 +1,24 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Mail } from 'lucide-react';
 import { FormEvent, useState } from 'react';
-import { api } from '../api';
+import { api, SsoProvider, takeSsoNotice } from '../api';
+import { SsoButtons } from './SsoButtons';
 
-export function AuthScreen({ mode, mailboxLogin }: { mode: 'setup' | 'login'; mailboxLogin?: boolean }) {
+export function AuthScreen({
+  mode,
+  mailboxLogin,
+  sso = [],
+}: {
+  mode: 'setup' | 'login';
+  mailboxLogin?: boolean;
+  sso?: SsoProvider[];
+}) {
   const qc = useQueryClient();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // Error devuelto por el inicio de sesión con Google/Microsoft/Yahoo (?sso_error=)
+  const [error, setError] = useState<string | null>(() => takeSsoNotice()?.error ?? null);
   const [busy, setBusy] = useState(false);
 
   async function submit(e: FormEvent) {
@@ -50,12 +60,16 @@ export function AuthScreen({ mode, mailboxLogin }: { mode: 'setup' | 'login'; ma
 
         {mode === 'setup' && (
           <div>
-            <label className="label" htmlFor="name">Nombre</label>
+            <label className="label" htmlFor="name">
+              Nombre
+            </label>
             <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
         )}
         <div>
-          <label className="label" htmlFor="email">Correo</label>
+          <label className="label" htmlFor="email">
+            Correo
+          </label>
           <input
             id="email"
             type="email"
@@ -67,7 +81,9 @@ export function AuthScreen({ mode, mailboxLogin }: { mode: 'setup' | 'login'; ma
           />
         </div>
         <div>
-          <label className="label" htmlFor="password">Contraseña</label>
+          <label className="label" htmlFor="password">
+            Contraseña
+          </label>
           <input
             id="password"
             type="password"
@@ -91,6 +107,16 @@ export function AuthScreen({ mode, mailboxLogin }: { mode: 'setup' | 'login'; ma
         <button className="btn-primary w-full" disabled={busy}>
           {busy ? 'Un momento…' : mode === 'setup' ? 'Crear administrador' : 'Entrar'}
         </button>
+
+        {mode === 'login' && sso.length > 0 && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />o
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+            </div>
+            <SsoButtons providers={sso} mode="login" label={(n) => `Continuar con ${n}`} />
+          </>
+        )}
       </form>
     </div>
   );

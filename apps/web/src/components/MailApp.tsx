@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Menu, PenSquare, Search } from 'lucide-react';
 import { useState } from 'react';
-import { api, MessageFull, Special, User } from '../api';
+import { api, MessageFull, Special, takeSsoNotice, User } from '../api';
 import { useLiveEvents } from '../useLiveEvents';
 import { AccountDialog } from './AccountDialog';
 import { Compose, ComposeDraft } from './Compose';
@@ -28,6 +28,8 @@ export function MailApp({ user }: { user: User }) {
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [accountDialog, setAccountDialog] = useState<{ id?: string } | null>(null);
   const [settings, setSettings] = useState(false);
+  // Aviso al volver de conectar una cuenta o vincular un proveedor (OAuth)
+  const [notice, setNotice] = useState(() => takeSsoNotice());
 
   const hasAccounts = (accounts.data?.length ?? 0) > 0;
 
@@ -43,8 +45,9 @@ export function MailApp({ user }: { user: User }) {
   }
 
   function reply(m: MessageFull, all: boolean) {
-    const to = [m.fromAddress, ...(all ? [...m.to, ...m.cc].map((a) => a.address) : [])]
-      .filter((a): a is string => !!a && a.toLowerCase() !== m.accountEmail.toLowerCase());
+    const to = [m.fromAddress, ...(all ? [...m.to, ...m.cc].map((a) => a.address) : [])].filter(
+      (a): a is string => !!a && a.toLowerCase() !== m.accountEmail.toLowerCase(),
+    );
     setCompose({
       accountId: m.accountId,
       to: [...new Set(to)].join(', '),
@@ -142,8 +145,19 @@ export function MailApp({ user }: { user: User }) {
         )}
       </main>
 
-      {compose && (
-        <Compose accounts={accounts.data ?? []} draft={compose} onClose={() => setCompose(null)} />
+      {compose && <Compose accounts={accounts.data ?? []} draft={compose} onClose={() => setCompose(null)} />}
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm shadow-lg ${
+            notice.error ? 'bg-red-600 text-white' : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+          }`}
+        >
+          {notice.error ?? notice.ok}
+          <button className="opacity-70 hover:opacity-100" onClick={() => setNotice(null)} aria-label="Cerrar aviso">
+            ✕
+          </button>
+        </div>
       )}
       {settings && (
         <SettingsDialog

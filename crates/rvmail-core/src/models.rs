@@ -28,6 +28,7 @@ pub struct MailAccount {
     pub secret_enc: String,
     pub auth_type: String,
     pub source: String,
+    pub oauth_provider: Option<String>,
     pub signature_html: Option<String>,
     pub enabled: bool,
     pub status: String,
@@ -59,7 +60,8 @@ pub struct User {
     pub id: Uuid,
     pub email: String,
     pub name: String,
-    pub password_hash: String,
+    /// None en usuarios creados por SSO sin contraseña local
+    pub password_hash: Option<String>,
     pub role: String,
     pub created_at: DateTime<Utc>,
 }

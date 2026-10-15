@@ -85,7 +85,7 @@ pub fn sign_session(st: &Shared, u: &User) -> String {
     .expect("JWT firmable")
 }
 
-fn read_session(st: &Shared, jar: &CookieJar) -> Option<SessionUser> {
+pub fn read_session_jar(st: &Shared, jar: &CookieJar) -> Option<SessionUser> {
     let token = jar.get(SESSION_COOKIE)?.value().to_string();
     let data = decode::<Claims>(
         &token,
@@ -191,7 +191,7 @@ where
             };
         }
         let jar = CookieJar::from_headers(&parts.headers);
-        read_session(&st, &jar)
+        read_session_jar(&st, &jar)
             .map(Authed)
             .ok_or_else(|| ApiError::unauthorized("Sesión no válida o expirada"))
     }
@@ -383,7 +383,13 @@ async fn login(
         .fetch_optional(&st.db)
         .await?;
     let user = match existing {
-        Some(u) if verify_password(&u.password_hash, &i.password) => u,
+        Some(u)
+            if u.password_hash
+                .as_deref()
+                .is_some_and(|h| verify_password(h, &i.password)) =>
+        {
+            u
+        }
         other => super::mailserver::mailbox_login(&st, &email, &i.password, other)
             .await?
             .ok_or_else(|| ApiError::unauthorized("Correo o contraseña incorrectos"))?,
@@ -409,7 +415,6 @@ async fn me(State(st): State<Shared>, Session(s): Session) -> ApiResult<Json<Val
 }
 
 /// Inicia sesión a un usuario ya verificado (SSO): devuelve la cookie.
-#[allow(dead_code)] // lo usa el SSO (fase S)
 pub fn login_cookie(st: &Shared, jar: CookieJar, u: &User) -> CookieJar {
     jar.add(session_cookie(st, u))
 }

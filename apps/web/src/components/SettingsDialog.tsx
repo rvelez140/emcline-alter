@@ -1,13 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Check, CheckCircle2, Copy, Globe, Plus, RefreshCw, Server, Trash2, X, XCircle } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  CheckCircle2,
+  Copy,
+  Globe,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Server,
+  Trash2,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { FormEvent, ReactNode, useState } from 'react';
 import { Account, api, ApiScope, DnsCheck, formatDate, User } from '../api';
+import { SsoButtons } from './SsoButtons';
 
-type Tab = 'ai' | 'mailserver';
+type Tab = 'ai' | 'login' | 'mailserver';
 
 const SCOPES: Array<{ scope: ApiScope; label: string; hint: string }> = [
   { scope: 'mail:read', label: 'Leer correo', hint: 'Buscar y leer mensajes y carpetas' },
-  { scope: 'mail:draft', label: 'Crear borradores', hint: 'Deja respuestas en Borradores para que tú las revises y envíes' },
+  {
+    scope: 'mail:draft',
+    label: 'Crear borradores',
+    hint: 'Deja respuestas en Borradores para que tú las revises y envíes',
+  },
   { scope: 'mail:send', label: 'Enviar correo', hint: 'Envía directamente, sin revisión humana' },
   { scope: 'mail:modify', label: 'Organizar', hint: 'Marcar leído/destacado y mover a la papelera' },
 ];
@@ -27,6 +45,9 @@ export function SettingsDialog({ user, accounts, onClose }: { user: User; accoun
           <TabButton active={tab === 'ai'} onClick={() => setTab('ai')} icon={<Bot size={16} />}>
             Acceso para IA
           </TabButton>
+          <TabButton active={tab === 'login'} onClick={() => setTab('login')} icon={<KeyRound size={16} />}>
+            Inicio de sesión
+          </TabButton>
           {user.role === 'admin' && (
             <TabButton active={tab === 'mailserver'} onClick={() => setTab('mailserver')} icon={<Server size={16} />}>
               Servidor de correo
@@ -34,7 +55,9 @@ export function SettingsDialog({ user, accounts, onClose }: { user: User; accoun
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {tab === 'ai' ? <AiAccess accounts={accounts} /> : <MailServerAdmin />}
+          {tab === 'ai' && <AiAccess accounts={accounts} />}
+          {tab === 'login' && <LoginMethods />}
+          {tab === 'mailserver' && <MailServerAdmin />}
         </div>
       </div>
     </div>
@@ -78,6 +101,70 @@ function CopyBox({ value, multiline }: { value: string; multiline?: boolean }) {
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ inicio de sesión */
+
+const PROVIDER_NAMES: Record<string, string> = { google: 'Google', microsoft: 'Microsoft', yahoo: 'Yahoo' };
+
+function LoginMethods() {
+  const qc = useQueryClient();
+  const data = useQuery({ queryKey: ['identities'], queryFn: api.identities });
+  const unlink = useMutation({
+    mutationFn: (id: string) => api.unlinkIdentity(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['identities'] }),
+  });
+  const providers = data.data?.providers ?? [];
+  const linked = data.data?.identities ?? [];
+
+  if (data.isSuccess && providers.length === 0 && linked.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        El administrador no ha configurado el inicio de sesión con Google, Microsoft o Yahoo (ver{' '}
+        <code>docs/SSO.md</code>
+        ).
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-5 text-sm">
+      <p className="text-slate-600 dark:text-slate-400">
+        Vincula tu cuenta de Google, Microsoft o Yahoo para entrar a RV Mail sin escribir la contraseña.
+      </p>
+      <div className="space-y-2">
+        <h4 className="font-medium">Cuentas vinculadas</h4>
+        {linked.length === 0 && <p className="text-slate-500">Ninguna todavía.</p>}
+        {linked.map((i) => (
+          <div
+            key={i.id}
+            className="flex items-center gap-3 rounded-lg border border-slate-200 p-2 dark:border-slate-800"
+          >
+            <KeyRound size={18} className="shrink-0 text-slate-400" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">{PROVIDER_NAMES[i.provider] ?? i.provider}</p>
+              <p className="truncate text-xs text-slate-500">
+                {i.email ?? 'sin correo'} ·{' '}
+                {i.lastLoginAt ? `último acceso ${formatDate(i.lastLoginAt)}` : 'sin usar aún'}
+              </p>
+            </div>
+            <button
+              className="btn-ghost text-red-600"
+              onClick={() => confirm('¿Desvincular esta cuenta?') && unlink.mutate(i.id)}
+            >
+              Desvincular
+            </button>
+          </div>
+        ))}
+        {unlink.isError && <p className="text-red-600">{(unlink.error as Error).message}</p>}
+      </div>
+      {providers.length > 0 && (
+        <div className="max-w-xs space-y-2">
+          <h4 className="font-medium">Vincular otra</h4>
+          <SsoButtons providers={providers} mode="link" label={(n) => `Vincular ${n}`} />
+        </div>
+      )}
     </div>
   );
 }
@@ -148,8 +235,16 @@ function AiAccess({ accounts }: { accounts: Account[] }) {
           <label className="label">Permisos</label>
           <div className="grid gap-2 sm:grid-cols-2">
             {SCOPES.map((s) => (
-              <label key={s.scope} className="flex items-start gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                <input type="checkbox" className="mt-1" checked={scopes.includes(s.scope)} onChange={() => setScopes(toggle(scopes, s.scope))} />
+              <label
+                key={s.scope}
+                className="flex items-start gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-800"
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={scopes.includes(s.scope)}
+                  onChange={() => setScopes(toggle(scopes, s.scope))}
+                />
                 <span>
                   <span className="font-medium">{s.label}</span>
                   <span className="block text-xs text-slate-500">{s.hint}</span>
@@ -167,8 +262,15 @@ function AiAccess({ accounts }: { accounts: Account[] }) {
           <label className="label">Cuentas (ninguna marcada = todas)</label>
           <div className="flex flex-wrap gap-2">
             {accounts.map((a) => (
-              <label key={a.id} className="flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800">
-                <input type="checkbox" checked={accountIds.includes(a.id)} onChange={() => setAccountIds(toggle(accountIds, a.id))} />
+              <label
+                key={a.id}
+                className="flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-1 text-xs dark:border-slate-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={accountIds.includes(a.id)}
+                  onChange={() => setAccountIds(toggle(accountIds, a.id))}
+                />
                 {a.email}
               </label>
             ))}
@@ -194,7 +296,10 @@ function AiAccess({ accounts }: { accounts: Account[] }) {
         <p className="text-xs text-slate-500">Dirección del servidor MCP (Streamable HTTP):</p>
         <CopyBox value={mcpUrl} />
         <p className="text-xs text-slate-500">Claude Code:</p>
-        <CopyBox value={`claude mcp add --transport http rvmail ${mcpUrl} --header "Authorization: Bearer ${shown}"`} multiline />
+        <CopyBox
+          value={`claude mcp add --transport http rvmail ${mcpUrl} --header "Authorization: Bearer ${shown}"`}
+          multiline
+        />
         <p className="text-xs text-slate-500">Otros clientes MCP (configuración JSON):</p>
         <CopyBox
           multiline
@@ -214,7 +319,10 @@ function AiAccess({ accounts }: { accounts: Account[] }) {
         <h4 className="font-medium">Tokens activos</h4>
         {tokens.data?.length === 0 && <p className="text-slate-500">No hay tokens.</p>}
         {tokens.data?.map((t) => (
-          <div key={t.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+          <div
+            key={t.id}
+            className="flex items-center gap-3 rounded-lg border border-slate-200 p-2 dark:border-slate-800"
+          >
             <Bot size={18} className="shrink-0 text-slate-400" />
             <div className="min-w-0 flex-1">
               <p className="font-medium">
@@ -228,7 +336,9 @@ function AiAccess({ accounts }: { accounts: Account[] }) {
             </div>
             <button
               className="btn-ghost text-red-600"
-              onClick={() => confirm(`¿Revocar el token "${t.name}"? El agente perderá el acceso.`) && revoke.mutate(t.id)}
+              onClick={() =>
+                confirm(`¿Revocar el token "${t.name}"? El agente perderá el acceso.`) && revoke.mutate(t.id)
+              }
             >
               Revocar
             </button>
@@ -267,7 +377,10 @@ function MailServerAdmin() {
           RV Mail está funcionando <b>solo como cliente</b>. Para administrar dominios y buzones del Mail Server de
           aaPanel de este VPS, configura en el <code>.env</code>:
         </p>
-        <CopyBox multiline value={'MAILSERVER_PROVIDER=aapanel\nMAILSERVER_HOSTNAME=mail.tudominio.com\nAAPANEL_API_KEY=…'} />
+        <CopyBox
+          multiline
+          value={'MAILSERVER_PROVIDER=aapanel\nMAILSERVER_HOSTNAME=mail.tudominio.com\nAAPANEL_API_KEY=…'}
+        />
         <p className="text-slate-500">
           y reinicia con <code>docker compose up -d</code>. Detalles en <code>docs/MAILSERVER.md</code>.
         </p>
@@ -280,7 +393,11 @@ function MailServerAdmin() {
       <div
         className={`flex items-start gap-2 rounded-xl p-3 ${ready ? 'bg-green-50 dark:bg-green-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}
       >
-        {ready ? <CheckCircle2 size={18} className="text-green-600" /> : <XCircle size={18} className="text-amber-600" />}
+        {ready ? (
+          <CheckCircle2 size={18} className="text-green-600" />
+        ) : (
+          <XCircle size={18} className="text-amber-600" />
+        )}
         <div className="flex-1">
           <p className="font-medium">
             {ready ? 'Conectado al Mail Server de aaPanel' : 'No se pudo conectar con aaPanel'}
@@ -362,9 +479,13 @@ function DomainPanel({ domain }: { domain: string }) {
     onSuccess: refresh,
   });
   const resetPassword = useMutation({
-    mutationFn: (b: { email: string; password: string }) => api.mailserver.updateMailbox(b.email, { password: b.password }),
+    mutationFn: (b: { email: string; password: string }) =>
+      api.mailserver.updateMailbox(b.email, { password: b.password }),
   });
-  const remove = useMutation({ mutationFn: (email: string) => api.mailserver.deleteMailbox(email), onSuccess: refresh });
+  const remove = useMutation({
+    mutationFn: (email: string) => api.mailserver.deleteMailbox(email),
+    onSuccess: refresh,
+  });
   const removeDomain = useMutation({
     mutationFn: () => api.mailserver.deleteDomain(domain),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['ms-domains'] }),
@@ -405,7 +526,12 @@ function DomainPanel({ domain }: { domain: string }) {
         {creating && <NewMailbox domain={domain} onDone={() => (setCreating(false), refresh())} />}
         {resetPassword.isSuccess && <p className="text-xs text-green-700">Contraseña actualizada.</p>}
         {[toggleActive, resetPassword, remove].map(
-          (m, i) => m.isError && <p key={i} className="text-xs text-red-600">{(m.error as Error).message}</p>,
+          (m, i) =>
+            m.isError && (
+              <p key={i} className="text-xs text-red-600">
+                {(m.error as Error).message}
+              </p>
+            ),
         )}
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {boxes.data?.map((b) => (
@@ -426,7 +552,10 @@ function DomainPanel({ domain }: { domain: string }) {
               >
                 Contraseña
               </button>
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => toggleActive.mutate({ email: b.email, active: !b.active })}>
+              <button
+                className="btn-ghost px-2 py-1 text-xs"
+                onClick={() => toggleActive.mutate({ email: b.email, active: !b.active })}
+              >
                 {b.active ? 'Desactivar' : 'Activar'}
               </button>
               <button
@@ -522,7 +651,13 @@ function NewMailbox({ domain, onDone }: { domain: string; onDone: () => void }) 
         <div>
           <label className="label">Dirección</label>
           <div className="flex items-center gap-1">
-            <input className="input" value={local} onChange={(e) => setLocal(e.target.value)} placeholder="ventas" required />
+            <input
+              className="input"
+              value={local}
+              onChange={(e) => setLocal(e.target.value)}
+              placeholder="ventas"
+              required
+            />
             <span className="text-xs text-slate-500">@{domain}</span>
           </div>
         </div>
@@ -532,11 +667,25 @@ function NewMailbox({ domain, onDone }: { domain: string; onDone: () => void }) 
         </div>
         <div>
           <label className="label">Contraseña (vacío = generar una segura)</label>
-          <input className="input" type="password" autoComplete="new-password" minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            minLength={10}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
         <div>
           <label className="label">Cuota (GB)</label>
-          <input className="input" type="number" min={0.1} step={0.1} value={quotaGb} onChange={(e) => setQuotaGb(Number(e.target.value))} />
+          <input
+            className="input"
+            type="number"
+            min={0.1}
+            step={0.1}
+            value={quotaGb}
+            onChange={(e) => setQuotaGb(Number(e.target.value))}
+          />
         </div>
       </div>
       <div>

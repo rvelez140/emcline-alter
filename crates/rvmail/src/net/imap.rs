@@ -51,6 +51,7 @@ pub async fn connect(p: &ImapParams<'_>) -> Result<ImapSession, ImapError> {
 pub async fn connect_xoauth2(
     host: &str,
     port: u16,
+    secure: bool,
     user: &str,
     access_token: &str,
     allow_self_signed: bool,
@@ -58,7 +59,7 @@ pub async fn connect_xoauth2(
     let p = ImapParams {
         host,
         port,
-        secure: true,
+        secure,
         username: user,
         password: "",
         allow_self_signed,

@@ -37,6 +37,11 @@ const FLAGS_CHUNK: usize = 500;
 /// Partes de texto mayores se piden parcialmente (solo los primeros bytes)
 const SNIPPET_FULL_LIMIT: u32 = 16_384;
 
+/// Error con un mensaje ya apto para el usuario (español, sin detalles internos).
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct UserFacing(String);
+
 #[derive(Debug)]
 pub enum Command {
     Sync,
@@ -49,6 +54,8 @@ pub struct Ctx {
     pub redis: ConnectionManager,
     pub core: CoreConfig,
     pub cfg: WorkerConfig,
+    /// Cliente HTTP (refresco de tokens OAuth)
+    pub http: reqwest::Client,
 }
 
 /// Estado de una carpeta según el último STATUS, para saltar las que no cambiaron.
@@ -88,17 +95,31 @@ impl AccountSession {
             match self.connect_and_serve().await {
                 Ok(Outcome::Stopped) => return,
                 Ok(Outcome::AuthFailed) => {
-                    // No reintentar: el usuario debe corregir la contraseña
-                    self.set_status(
-                        AccountStatus::AuthError,
-                        Some("El servidor rechazó usuario o contraseña"),
+                    // No reintentar: el usuario debe corregir la contraseña o reconectar la cuenta OAuth
+                    let oauth: bool = sqlx::query_scalar(
+                        "select auth_type = 'oauth2' from mail_accounts where id = $1",
                     )
-                    .await;
+                    .bind(self.account_id)
+                    .fetch_optional(&self.ctx.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or(false);
+                    let msg = if oauth {
+                        "El proveedor rechazó el acceso; vuelve a conectar la cuenta"
+                    } else {
+                        "El servidor rechazó usuario o contraseña"
+                    };
+                    self.set_status(AccountStatus::AuthError, Some(msg)).await;
                     self.wait_for_stop().await;
                     return;
                 }
                 Err(e) => {
-                    let msg = imapnet::humanize(&e);
+                    // Los errores ya redactados para el usuario se muestran tal cual
+                    let msg = match e.downcast_ref::<UserFacing>() {
+                        Some(UserFacing(m)) => m.clone(),
+                        None => imapnet::humanize(&e),
+                    };
                     warn!(account = %self.account_id, err = %format!("{e:#}"), "sesión IMAP interrumpida");
                     self.set_status(AccountStatus::Error, Some(&msg)).await;
                 }
@@ -138,21 +159,47 @@ impl AccountSession {
         if !account.enabled {
             return Ok(Outcome::Stopped);
         }
-        let password = self.ctx.core.master_key.decrypt(&account.secret_enc)?;
         self.set_status(AccountStatus::Syncing, None).await;
-
-        let params = ImapParams {
-            host: &account.imap_host,
-            port: account.imap_port as u16,
-            secure: account.imap_secure,
-            username: &account.username,
-            password: &password,
-            allow_self_signed: self.ctx.core.allow_self_signed,
+        let connected = if account.auth_type == "oauth2" {
+            // Gmail / Outlook / Yahoo: access token fresco y XOAUTH2
+            let token = match crate::oauth::access_token(
+                &self.ctx.db,
+                &self.ctx.redis,
+                &self.ctx.core.master_key,
+                &self.ctx.http,
+                &account,
+            )
+            .await
+            {
+                Ok(t) => t,
+                Err(crate::oauth::OAuthError::Revoked) => return Ok(Outcome::AuthFailed),
+                Err(crate::oauth::OAuthError::Other(m)) => return Err(UserFacing(m).into()),
+            };
+            imapnet::connect_xoauth2(
+                &account.imap_host,
+                account.imap_port as u16,
+                account.imap_secure,
+                &account.username,
+                &token,
+                self.ctx.core.allow_self_signed,
+            )
+            .await
+        } else {
+            let password = self.ctx.core.master_key.decrypt(&account.secret_enc)?;
+            imapnet::connect(&ImapParams {
+                host: &account.imap_host,
+                port: account.imap_port as u16,
+                secure: account.imap_secure,
+                username: &account.username,
+                password: &password,
+                allow_self_signed: self.ctx.core.allow_self_signed,
+            })
+            .await
         };
-        let mut session = match imapnet::connect(&params).await {
+        let mut session = match connected {
             Ok(s) => s,
             Err(ImapError::Auth) => return Ok(Outcome::AuthFailed),
-            Err(ImapError::Other(m)) => return Err(anyhow::anyhow!(m)),
+            Err(ImapError::Other(m)) => return Err(UserFacing(m).into()),
         };
         let caps = session.capabilities().await?;
         let condstore = caps.has_str("CONDSTORE") || caps.has_str("QRESYNC");

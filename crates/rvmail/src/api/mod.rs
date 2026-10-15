@@ -41,6 +41,7 @@ pub fn router(st: Shared) -> Router {
         .merge(tokens::routes())
         .merge(mcp::routes())
         .merge(mailserver::routes())
+        .merge(sso::routes())
         .fallback(|| async { error::ApiError::not_found("Ruta no encontrada") })
         .layer(axum::extract::DefaultBodyLimit::max(30 * 1024 * 1024));
 
@@ -128,6 +129,7 @@ pub async fn run() -> Result<()> {
         cfg,
         mailserver,
         events,
+        http: crate::net::tls::http_client(false),
     });
     let app = router(st);
 

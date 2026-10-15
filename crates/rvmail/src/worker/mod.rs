@@ -153,6 +153,7 @@ pub async fn run() -> Result<()> {
     info!(%owner, ?cfg, "worker iniciado");
 
     let ctx = Ctx {
+        http: crate::net::tls::http_client(false),
         db,
         redis: redis.clone(),
         core,
