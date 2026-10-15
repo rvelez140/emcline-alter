@@ -25,9 +25,21 @@ jobs:
       - name: Validar docker-compose
         run: make prod-config
 
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
   # Imágenes multi-arquitectura (amd64 + arm64) en GHCR: ghcr.io/<owner>/rvmail-{api,worker,web}
   images:
-    needs: check
+    needs: [check, rust]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

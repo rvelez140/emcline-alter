@@ -42,7 +42,7 @@ Arquitectura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Guía para Claude 
 
 ```
 apps/api        API NestJS (auth, cuentas, mensajes, envío, tiempo real)
-apps/worker     Sincronizador IMAP multi-cuenta
+crates/rvmail   Binario Rust: sincronizador IMAP (worker); api e instalador en migración
 apps/web        PWA React + Tailwind
 packages/db     Esquema y migraciones (Drizzle + PostgreSQL)
 packages/shared Cifrado y eventos compartidos

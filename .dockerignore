@@ -13,3 +13,6 @@ backups
 docs
 *.md
 !apps/**/README.md
+
+# Compilaciones de Rust
+target

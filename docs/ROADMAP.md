@@ -29,8 +29,8 @@ Objetivo: backend en un único binario `rvmail` (api + worker + instalador),
 pensado para VPS pequeños y ARM (Oracle Ampere A1). La base de datos y el
 contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 
-- [ ] R1. Workspace Cargo (`crates/`): `rvmail-core` (config, BD con sqlx, cifrado compatible con el formato `v1:` actual, eventos Redis)
-- [ ] R2. Worker en Rust (`rvmail worker`): leases en Redis, sincronización IMAP, IDLE, control por Redis; reemplaza `apps/worker`
+- [x] R1. Workspace Cargo (`crates/`): `rvmail-core` (config, BD con sqlx, cifrado compatible con el formato `v1:` actual, eventos Redis)
+- [x] R2. Worker en Rust (`rvmail worker`): leases en Redis, sincronización IMAP, IDLE, control por Redis; reemplaza `apps/worker`
 - [ ] R3. API en Rust (`rvmail api`, axum): auth/cookies, cuentas, correo, SSE, tokens, MCP, servidor de correo; mismos endpoints
 - [ ] R4. Migraciones con `sqlx migrate` (se conservan las SQL ya aplicadas) y retiro de NestJS/Drizzle
 - [ ] R5. Imagen única `rvmail` (distroless/scratch, amd64+arm64) que sirve también la web estática; compose simplificado

@@ -1,0 +1,21 @@
+[package]
+name = "rvmail-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1.0.104"
+base64 = "0.22"
+chrono = { version = "0.4.45", features = ["serde"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+redis = { version = "1.7.1", features = ["tokio-comp", "aio", "connection-manager"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "chrono", "json", "migrate", "derive"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["full"] }
+tracing = "0.1.44"
+uuid = { version = "1.28.0", features = ["v4", "serde"] }

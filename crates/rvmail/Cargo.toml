@@ -1,0 +1,26 @@
+[package]
+name = "rvmail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+futures = "0.3.34"
+mail-parser = "0.11.9"
+redis = { version = "1.7.1", features = ["tokio-comp", "aio"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rvmail-core = { version = "0.2.0", path = "../rvmail-core" }
+serde_json = "1.0.154"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.28.0", features = ["v4"] }
+webpki-roots = "1.0.9"

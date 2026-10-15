@@ -17,11 +17,15 @@ dev-reset: ## Borra los datos de desarrollo y vuelve a empezar
 	$(DEV) up -d --wait
 	pnpm db:migrate
 
-dev: ## Corre api, worker y web con recarga en caliente
+dev: ## Corre api y web con recarga en caliente (el worker: make dev-worker)
 	pnpm dev
 
-check: ## Typecheck + build de todo
+dev-worker: ## Corre el worker Rust con las variables de .env.dev
+	set -a; . ./.env.dev; set +a; cargo run -p rvmail -- worker
+
+check: ## Typecheck + build de todo (TypeScript y Rust)
 	pnpm typecheck && pnpm build
+	cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
 ## ---------- Producción (en el VPS)
 install: ## Instalador interactivo

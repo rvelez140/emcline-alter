@@ -26,7 +26,8 @@ Detalle en `docs/ARCHITECTURE.md`. Léelo antes de cambiar límites entre servic
 
 ```
 apps/api        API REST + SSE (NestJS 11, CommonJS). Auth, cuentas, mensajes, envío.
-apps/worker     Sincronizador IMAP multi-cuenta (imapflow, IDLE, leases en Redis).
+crates/rvmail   Binario Rust `rvmail`: worker IMAP (IDLE, leases en Redis); luego api e instalador.
+crates/rvmail-core  Núcleo Rust compartido (config, cifrado compatible, modelos, eventos).
 apps/web        PWA (Vite + React 19 + Tailwind 4). Interfaz responsive de 3 paneles.
 packages/db     Esquema Drizzle + migraciones SQL + cliente compartido.
 packages/shared Tipos y utilidades comunes (cifrado de credenciales, eventos).
@@ -40,7 +41,9 @@ scripts/        Instalador, backup, actualización, utilidades de desarrollo.
 make dev-up        # levanta postgres, redis y GreenMail (IMAP/SMTP de pruebas)
 pnpm install
 pnpm db:migrate    # aplica migraciones a la BD de desarrollo
-pnpm dev           # api :3000, web :5173 (proxy /api), worker
+pnpm dev           # api :3000, web :5173 (proxy /api)
+make dev-worker    # worker Rust (cargo run -p rvmail -- worker)
+cargo test && cargo clippy --all-targets   # Rust
 pnpm build         # compila todo
 pnpm typecheck
 make prod-config   # valida docker-compose de producción
@@ -65,7 +68,7 @@ IMAP `localhost:3143`, SMTP `localhost:3025`, sin TLS.
 4. **El worker es el único que mantiene conexiones IMAP persistentes.** La API
    solo abre conexiones cortas bajo demanda (leer cuerpo, mover, enviar).
 5. **Un worker por cuenta a la vez**, garantizado con lease en Redis
-   (`apps/worker/src/lease.ts`). Esto permite escalar `worker` con réplicas.
+   (`crates/rvmail/src/worker/lease.rs`). Esto permite escalar `worker` con réplicas.
 6. **Cambios de esquema = migración.** Edita `packages/db/src/schema.ts` y corre
    `pnpm db:generate`. Nunca edites SQL de migraciones ya aplicadas.
 7. **Configuración solo por variables de entorno** (ver `.env.example`). Si
