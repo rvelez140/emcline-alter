@@ -10,7 +10,9 @@ use uuid::Uuid;
 pub struct MessageRow {
     pub account_id: Uuid,
     pub folder_id: Uuid,
-    pub uid: u32,
+    pub uid: i64,
+    /// Id del mensaje en el servidor JMAP (None en IMAP)
+    pub remote_id: Option<String>,
     pub message_id: Option<String>,
     pub in_reply_to: Option<String>,
     pub thread_key: String,
@@ -57,7 +59,8 @@ pub fn to_row(
     MessageRow {
         account_id,
         folder_id,
-        uid,
+        uid: i64::from(uid),
+        remote_id: None,
         message_id: msg.and_then(|m| m.message_id()).map(|id| format!("<{id}>")),
         in_reply_to: msg
             .and_then(|m| first_id(m.in_reply_to()))

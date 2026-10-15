@@ -143,6 +143,8 @@ pub async fn run() -> Result<()> {
     let core = CoreConfig::from_env()?;
     let cfg = WorkerConfig::from_env();
     let db = rvmail_core::db::connect(&core.database_url, cfg.db_pool_size).await?;
+    // La API aplica las migraciones; el worker espera a que el esquema esté al día
+    crate::api::migrate::wait_until_applied(&db).await?;
     let redis_client = redis::Client::open(core.redis_url.as_str())?;
     let redis = ConnectionManager::new(redis_client.clone()).await?;
     let owner = format!(

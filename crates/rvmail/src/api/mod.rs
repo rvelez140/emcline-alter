@@ -4,14 +4,17 @@
 mod accounts;
 mod auth;
 mod clients;
+mod discover;
 mod error;
 mod events;
 mod health;
 mod mail;
+mod mail_jmap;
 mod mailserver;
 mod mcp;
 pub mod migrate;
 mod sso;
+mod stalwart;
 mod state;
 mod tokens;
 mod validate;
@@ -42,6 +45,7 @@ pub fn router(st: Shared) -> Router {
         .merge(mcp::routes())
         .merge(mailserver::routes())
         .merge(sso::routes())
+        .merge(discover::routes())
         .fallback(|| async { error::ApiError::not_found("Ruta no encontrada") })
         .layer(axum::extract::DefaultBodyLimit::max(30 * 1024 * 1024));
 

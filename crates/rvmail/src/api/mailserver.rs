@@ -156,13 +156,61 @@ fn s(v: &Value, keys: &[&str]) -> Option<String> {
     })
 }
 
+/// Servidor de correo administrable.
 pub enum Provider {
     AaPanel(AaPanel),
+    Stalwart(super::stalwart::Stalwart),
+}
+
+macro_rules! dispatch {
+    ($self:ident, $p:ident => $e:expr) => {
+        match $self {
+            Provider::AaPanel($p) => $e,
+            Provider::Stalwart($p) => $e,
+        }
+    };
 }
 
 impl Provider {
     async fn list_domains(&self) -> Result<Vec<MailDomain>, String> {
-        let Provider::AaPanel(p) = self;
+        dispatch!(self, p => p.list_domains().await)
+    }
+    async fn add_domain(&self, domain: &str, hostname: &str) -> Result<(), String> {
+        dispatch!(self, p => p.add_domain(domain, hostname).await)
+    }
+    async fn delete_domain(&self, domain: &str) -> Result<(), String> {
+        dispatch!(self, p => p.delete_domain(domain).await)
+    }
+    async fn list_mailboxes(&self, domain: &str) -> Result<Vec<Mailbox>, String> {
+        dispatch!(self, p => p.list_mailboxes(domain).await)
+    }
+    async fn add_mailbox(
+        &self,
+        email: &str,
+        full_name: &str,
+        password: &str,
+        quota_gb: f64,
+    ) -> Result<(), String> {
+        dispatch!(self, p => p.add_mailbox(email, full_name, password, quota_gb).await)
+    }
+    async fn update_mailbox(&self, cur: &Mailbox, patch: &MailboxPatch) -> Result<(), String> {
+        dispatch!(self, p => p.update_mailbox(cur, patch).await)
+    }
+    async fn delete_mailbox(&self, email: &str) -> Result<(), String> {
+        dispatch!(self, p => p.delete_mailbox(email).await)
+    }
+    /// Registros DNS que el servidor espera (Stalwart los genera, con DKIM incluido).
+    async fn expected_dns(&self, domain: &str) -> Option<Vec<super::stalwart::ZoneRecord>> {
+        match self {
+            Provider::AaPanel(_) => None,
+            Provider::Stalwart(p) => p.expected_dns(domain).await.ok(),
+        }
+    }
+}
+
+impl AaPanel {
+    async fn list_domains(&self) -> Result<Vec<MailDomain>, String> {
+        let p = self;
         let data = p
             .plugin("get_domains", &[("p", "1".into()), ("size", "1000".into())])
             .await?;
@@ -178,7 +226,7 @@ impl Provider {
     }
 
     async fn add_domain(&self, domain: &str, hostname: &str) -> Result<(), String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         let a_record = if hostname.is_empty() {
             format!("mail.{domain}")
         } else {
@@ -199,14 +247,14 @@ impl Provider {
     }
 
     async fn delete_domain(&self, domain: &str) -> Result<(), String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         p.plugin("delete_domain", &[("domain", domain.into())])
             .await
             .map(|_| ())
     }
 
     async fn list_mailboxes(&self, domain: &str) -> Result<Vec<Mailbox>, String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         let data = p
             .plugin(
                 "get_mailboxs",
@@ -236,7 +284,7 @@ impl Provider {
         password: &str,
         quota_gb: f64,
     ) -> Result<(), String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         p.plugin(
             "add_mailbox",
             &[
@@ -254,7 +302,7 @@ impl Provider {
 
     /// update_mailbox espera el registro completo: se combinan valores actuales y cambios.
     async fn update_mailbox(&self, cur: &Mailbox, patch: &MailboxPatch) -> Result<(), String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         let mut params = vec![
             ("username", cur.email.clone()),
             (
@@ -283,7 +331,7 @@ impl Provider {
     }
 
     async fn delete_mailbox(&self, email: &str) -> Result<(), String> {
-        let Provider::AaPanel(p) = self;
+        let p = self;
         p.plugin("delete_mailbox", &[("username", email.into())])
             .await
             .map(|_| ())
@@ -302,6 +350,13 @@ impl MailServerService {
         let provider = match cfg.provider.as_str() {
             "aapanel" if !cfg.aapanel_api_key.is_empty() => {
                 Some(Provider::AaPanel(AaPanel::new(&cfg)))
+            }
+            "stalwart" if !cfg.stalwart_password.is_empty() => {
+                Some(Provider::Stalwart(super::stalwart::Stalwart::new(&cfg)))
+            }
+            "stalwart" => {
+                tracing::warn!("MAILSERVER_PROVIDER=stalwart pero falta STALWART_ADMIN_PASSWORD: integración desactivada");
+                None
             }
             "aapanel" => {
                 tracing::warn!("MAILSERVER_PROVIDER=aapanel pero falta AAPANEL_API_KEY: integración desactivada");
@@ -322,6 +377,18 @@ impl MailServerService {
             "imapHost": self.cfg.hostname, "imapPort": self.cfg.imap_port, "imapSecure": self.cfg.imap_port == 993,
             "smtpHost": self.cfg.hostname, "smtpPort": self.cfg.smtp_port, "smtpSecure": self.cfg.smtp_port == 465,
         })
+    }
+
+    /// URL JMAP de los buzones alojados (solo Stalwart).
+    pub fn jmap_url(&self) -> Option<String> {
+        match self.provider {
+            Some(Provider::Stalwart(_)) => Some(if self.cfg.jmap_url.is_empty() {
+                self.cfg.stalwart_url.clone()
+            } else {
+                self.cfg.jmap_url.clone()
+            }),
+            _ => None,
+        }
     }
 
     fn p(&self) -> ApiResult<&Provider> {
@@ -392,7 +459,11 @@ fn gw(e: String) -> ApiError {
 // ------------------------------------------------------------------ DNS
 
 /// Registros que necesita un dominio para recibir y enviar sin caer en spam.
-pub async fn check_dns(cfg: &MailServerConfig, domain: &str) -> Value {
+pub async fn check_dns(
+    cfg: &MailServerConfig,
+    domain: &str,
+    expected: Option<Vec<super::stalwart::ZoneRecord>>,
+) -> Value {
     let server = if cfg.hostname.is_empty() {
         format!("mail.{domain}")
     } else {
@@ -481,6 +552,51 @@ pub async fn check_dns(cfg: &MailServerConfig, domain: &str) -> Value {
             })
             .collect::<Vec<_>>()
     };
+    if let Some(records) = expected {
+        // El servidor (Stalwart) dice exactamente qué publicar: se compara registro a registro
+        let mut checks = vec![
+            json!({ "record": "A (servidor de correo)", "ok": !server_ips.is_empty(), "found": server_ips, "expected": format!("{server} → IP pública del VPS") }),
+        ];
+        let norm = |t: &str| t.replace([' ', '"'], "").to_lowercase();
+        for rec in records
+            .iter()
+            .filter(|r| r.rtype == "MX" || r.rtype == "TXT")
+        {
+            let label = if rec.rtype == "MX" {
+                "MX".to_string()
+            } else if rec.value.starts_with("v=spf1") {
+                format!("SPF ({})", rec.name)
+            } else if rec.name.contains("._domainkey.") {
+                format!(
+                    "DKIM ({})",
+                    rec.name.split("._domainkey.").next().unwrap_or_default()
+                )
+            } else if rec.name.starts_with("_dmarc.") {
+                "DMARC (_dmarc)".to_string()
+            } else {
+                format!("TXT {}", rec.name)
+            };
+            let (found, ok) = if rec.rtype == "MX" {
+                let host = rec
+                    .value
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or_default()
+                    .to_lowercase();
+                let f: Vec<String> = mx.iter().map(|(p, h)| format!("{p} {h}")).collect();
+                let ok = mx.iter().any(|(_, h)| h.to_lowercase() == host);
+                (f, ok)
+            } else {
+                let f = txt(rec.name.clone()).await;
+                let want = norm(&rec.value);
+                let ok = f.iter().any(|t| norm(t) == want);
+                (short(&f), ok)
+            };
+            checks
+                .push(json!({ "record": label, "ok": ok, "found": found, "expected": rec.value }));
+        }
+        return json!({ "domain": domain, "serverHost": server, "serverIps": server_ips, "checks": checks });
+    }
     json!({
         "domain": domain, "serverHost": server, "serverIps": server_ips,
         "checks": [
@@ -499,6 +615,15 @@ pub async fn check_dns(cfg: &MailServerConfig, domain: &str) -> Value {
 // ------------------------------------------------------------------ aprovisionamiento
 
 async fn verify_mailbox_login(st: &Shared, email: &str, password: &str) -> bool {
+    if let Some(url) = st.mailserver.jmap_url() {
+        let auth = crate::jmap::Auth::Basic {
+            user: email.into(),
+            pass: password.into(),
+        };
+        return crate::jmap::Client::connect(&st.http, &url, auth)
+            .await
+            .is_ok();
+    }
     let c = &st.mailserver.cfg;
     let p = ImapParams {
         host: &c.hostname,
@@ -563,6 +688,14 @@ async fn link_mailbox(
         .fetch_one(&st.db)
         .await?,
     };
+    // Con Stalwart el buzón se sincroniza por JMAP (push nativo, sin IMAP)
+    let jmap = st.mailserver.jmap_url();
+    sqlx::query("update mail_accounts set protocol = $2, jmap_url = $3 where id = $1")
+        .bind(id)
+        .bind(if jmap.is_some() { "jmap" } else { "imap" })
+        .bind(&jmap)
+        .execute(&st.db)
+        .await?;
     notify(st, WorkerControl::AccountChanged { account_id: id }).await;
     Ok(id)
 }
@@ -723,7 +856,7 @@ async fn add_domain_h(
     let mut r = st.redis.clone();
     let _: i64 = r.del(DOMAINS_CACHE).await?;
     Ok(Json(
-        json!({ "domain": d, "dns": check_dns(&st.mailserver.cfg, &d).await }),
+        json!({ "domain": d, "dns": check_dns(&st.mailserver.cfg, &d, st.mailserver.p()?.expected_dns(&d).await).await }),
     ))
 }
 
@@ -744,9 +877,14 @@ async fn dns_h(
     Admin(_): Admin,
     Path(d): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    Ok(Json(
-        check_dns(&st.mailserver.cfg, &domain_param(&d)?).await,
-    ))
+    Ok(Json({
+        let d = domain_param(&d)?;
+        let expected = match st.mailserver.p() {
+            Ok(p) => p.expected_dns(&d).await,
+            Err(_) => None,
+        };
+        check_dns(&st.mailserver.cfg, &d, expected).await
+    }))
 }
 
 async fn mailboxes_h(

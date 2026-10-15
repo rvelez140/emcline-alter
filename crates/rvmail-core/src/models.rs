@@ -29,6 +29,9 @@ pub struct MailAccount {
     pub auth_type: String,
     pub source: String,
     pub oauth_provider: Option<String>,
+    /// imap | jmap
+    pub protocol: String,
+    pub jmap_url: Option<String>,
     pub signature_html: Option<String>,
     pub enabled: bool,
     pub status: String,

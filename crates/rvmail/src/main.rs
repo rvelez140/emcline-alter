@@ -1,6 +1,7 @@
 //! RV Mail — binario único: `rvmail worker`, `rvmail api`, `rvmail install`…
 
 mod api;
+mod jmap;
 mod net;
 mod oauth;
 mod worker;

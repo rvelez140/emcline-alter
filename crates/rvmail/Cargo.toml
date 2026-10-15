@@ -24,7 +24,7 @@ mail-parser = "0.11.9"
 md-5 = "0.11.0"
 rand = "0.8"
 redis = { version = "1.7.1", features = ["tokio-comp", "aio"] }
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls-no-provider"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rvmail-core = { version = "0.2.0", path = "../rvmail-core" }
 serde = { version = "1.0.229", features = ["derive"] }

@@ -148,6 +148,7 @@ struct Owned {
     flagged: bool,
     has_attachments: bool,
     folder_path: String,
+    remote_id: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Default)]
@@ -281,7 +282,7 @@ pub async fn list_messages(
 async fn get_owned(st: &Shared, user: &SessionUser, id: Uuid) -> ApiResult<(Owned, MailAccount)> {
     let mut q = QueryBuilder::new(
         "select m.id, m.account_id, m.folder_id, m.uid, m.message_id, m.subject, m.from_name, m.from_address,
-                m.\"to\", m.cc, m.date, m.snippet, m.seen, m.flagged, m.has_attachments, f.path as folder_path
+                m.\"to\", m.cc, m.date, m.snippet, m.seen, m.flagged, m.has_attachments, f.path as folder_path, m.remote_id
          from messages m join folders f on f.id = m.folder_id join mail_accounts a on a.id = m.account_id
          where m.id = ",
     );
@@ -360,6 +361,14 @@ pub async fn get_message(
     let cached: Option<String> = r.get(&key).await?;
     let body: MessageBody = match cached.and_then(|c| serde_json::from_str(&c).ok()) {
         Some(b) => b,
+        None if acc.protocol == "jmap" => {
+            let rid = msg.remote_id.as_deref().unwrap_or_default();
+            let b = super::mail_jmap::body(st, &acc, rid).await?;
+            let _: () = r
+                .set_ex(&key, serde_json::to_string(&b)?, BODY_CACHE_TTL)
+                .await?;
+            b
+        }
         None => {
             let conn = conn_for(st, &acc).await?;
             let mut s = clients::open(st, &conn).await?;
@@ -408,27 +417,18 @@ pub async fn set_flags(
 ) -> ApiResult<Value> {
     user.require("mail:modify")?;
     let (msg, acc) = get_owned(st, user, id).await?;
-    let conn = conn_for(st, &acc).await?;
-    let mut s = clients::open(st, &conn).await?;
-    let uid = msg.uid.to_string();
-    let res = async {
-        s.select(&msg.folder_path).await?;
-        for (on, flag) in [(seen, "\\Seen"), (flagged, "\\Flagged")] {
-            if let Some(on) = on {
-                let op = if on { "+FLAGS.SILENT" } else { "-FLAGS.SILENT" };
-                let _: Vec<_> = s
-                    .uid_store(&uid, format!("{op} ({flag})"))
-                    .await?
-                    .try_collect()
-                    .await?;
-            }
-        }
-        anyhow::Ok(())
+    if acc.protocol == "jmap" {
+        super::mail_jmap::set_flags(
+            st,
+            &acc,
+            msg.remote_id.as_deref().unwrap_or_default(),
+            seen,
+            flagged,
+        )
+        .await?;
+    } else {
+        set_flags_imap(st, &acc, &msg, seen, flagged).await?;
     }
-    .await;
-    clients::close(s).await;
-    res.map_err(imap_fail)?;
-
     let row: (bool, bool) = sqlx::query_as(
         "update messages set seen = coalesce($2, seen), flagged = coalesce($3, flagged) where id = $1 returning seen, flagged",
     )
@@ -449,6 +449,36 @@ pub async fn set_flags(
     Ok(json!({ "id": id, "seen": row.0, "flagged": row.1 }))
 }
 
+async fn set_flags_imap(
+    st: &Shared,
+    acc: &MailAccount,
+    msg: &Owned,
+    seen: Option<bool>,
+    flagged: Option<bool>,
+) -> ApiResult<()> {
+    let conn = conn_for(st, acc).await?;
+    let mut s = clients::open(st, &conn).await?;
+    let uid = msg.uid.to_string();
+    let res = async {
+        s.select(&msg.folder_path).await?;
+        for (on, flag) in [(seen, "\\Seen"), (flagged, "\\Flagged")] {
+            if let Some(on) = on {
+                let op = if on { "+FLAGS.SILENT" } else { "-FLAGS.SILENT" };
+                let _: Vec<_> = s
+                    .uid_store(&uid, format!("{op} ({flag})"))
+                    .await?
+                    .try_collect()
+                    .await?;
+            }
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    clients::close(s).await;
+    res.map_err(imap_fail)?;
+    Ok(())
+}
+
 /// Mueve a la papelera (o borra definitivamente si ya está en la papelera).
 pub async fn remove(st: &Shared, user: &SessionUser, id: Uuid) -> ApiResult<()> {
     user.require("mail:modify")?;
@@ -458,6 +488,25 @@ pub async fn remove(st: &Shared, user: &SessionUser, id: Uuid) -> ApiResult<()> 
             .bind(acc.id)
             .fetch_optional(&st.db)
             .await?;
+    if acc.protocol == "jmap" {
+        let target = trash
+            .as_ref()
+            .filter(|t| t.id != msg.folder_id)
+            .map(|t| t.path.as_str());
+        super::mail_jmap::remove(
+            st,
+            &acc,
+            msg.remote_id.as_deref().unwrap_or_default(),
+            target,
+        )
+        .await?;
+        sqlx::query("delete from messages where id = $1")
+            .bind(id)
+            .execute(&st.db)
+            .await?;
+        request_sync(st, acc.id).await;
+        return Ok(());
+    }
     let conn = conn_for(st, &acc).await?;
     let mut s = clients::open(st, &conn).await?;
     let uid = msg.uid.to_string();
@@ -542,12 +591,12 @@ fn mailbox(name: Option<&str>, addr: &str) -> ApiResult<Mailbox> {
     Ok(Mailbox::new(name.map(str::to_string), email))
 }
 
-/// Construye el mensaje MIME (texto + HTML) con firma y cabeceras de respuesta.
-async fn build(
+/// HTML con firma, texto alternativo y Message-ID del correo al que se responde.
+async fn compose_parts(
     st: &Shared,
     acc: &MailAccount,
     i: &ComposeInput,
-) -> ApiResult<(lettre::Message, String)> {
+) -> ApiResult<(String, String, Option<String>)> {
     let mut reply: Option<String> = None;
     if let Some(orig) = i.in_reply_to_message_id {
         reply =
@@ -563,6 +612,16 @@ async fn build(
         None => i.html.clone(),
     };
     let text = i.text.clone().unwrap_or_else(|| html_to_text(&html));
+    Ok((html, text, reply))
+}
+
+/// Construye el mensaje MIME (texto + HTML) con firma y cabeceras de respuesta.
+async fn build(
+    st: &Shared,
+    acc: &MailAccount,
+    i: &ComposeInput,
+) -> ApiResult<(lettre::Message, String)> {
+    let (html, text, reply) = compose_parts(st, acc, i).await?;
     let domain = acc.email.split('@').nth(1).unwrap_or("rvmail.local");
     let message_id = format!("<{}@{domain}>", Uuid::new_v4());
 
@@ -611,6 +670,15 @@ pub async fn send(st: &Shared, user: &SessionUser, i: ComposeInput) -> ApiResult
     if let Some(t) = &user.token {
         enforce_agent_limit(st, t.id).await?;
     }
+    if acc.protocol == "jmap" {
+        let (html, text, reply) = compose_parts(st, &acc, &i).await?;
+        let id = super::mail_jmap::send(st, &acc, &i, &html, &text, reply.as_deref()).await?;
+        if let Some(t) = &user.token {
+            tracing::info!(token = %t.name, user = %user.email, from = %acc.email, "agente envió correo (JMAP)");
+        }
+        request_sync(st, acc.id).await;
+        return Ok(json!({ "messageId": id }));
+    }
     let (msg, message_id) = build(st, &acc, &i).await?;
     let conn = conn_for(st, &acc).await?;
     let smtp = clients::smtp(st, &conn)?;
@@ -647,6 +715,12 @@ pub async fn save_draft(st: &Shared, user: &SessionUser, i: ComposeInput) -> Api
     user.require("mail:draft")?;
     let i = i.validate(false)?;
     let acc = get_account(st, user, i.account_id).await?;
+    if acc.protocol == "jmap" {
+        let (html, text, reply) = compose_parts(st, &acc, &i).await?;
+        super::mail_jmap::save_draft(st, &acc, &i, &html, &text, reply.as_deref()).await?;
+        request_sync(st, acc.id).await;
+        return Ok(json!({ "folder": "Drafts" }));
+    }
     let drafts: Option<String> = sqlx::query_scalar(
         "select path from folders where account_id = $1 and special_use = '\\Drafts'",
     )

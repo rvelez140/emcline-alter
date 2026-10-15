@@ -79,6 +79,12 @@ pub struct MailServerConfig {
     pub aapanel_url: String,
     pub aapanel_api_key: String,
     pub aapanel_verify_tls: bool,
+    /// Stalwart: URL de su API/JMAP vista desde RV Mail (p. ej. http://stalwart:8080)
+    pub stalwart_url: String,
+    pub stalwart_user: String,
+    pub stalwart_password: String,
+    /// URL JMAP para las cuentas de los buzones (por defecto, la de Stalwart)
+    pub jmap_url: String,
 }
 
 /// Ajustes de la API HTTP.
@@ -128,6 +134,13 @@ impl ApiConfig {
                     .to_string(),
                 aapanel_api_key: var("AAPANEL_API_KEY").unwrap_or_default(),
                 aapanel_verify_tls: flag("AAPANEL_VERIFY_TLS"),
+                stalwart_url: var("STALWART_URL")
+                    .unwrap_or_else(|| "http://stalwart:8080".into())
+                    .trim_end_matches('/')
+                    .to_string(),
+                stalwart_user: var("STALWART_ADMIN_USER").unwrap_or_default(),
+                stalwart_password: var("STALWART_ADMIN_PASSWORD").unwrap_or_default(),
+                jmap_url: var("MAILSERVER_JMAP_URL").unwrap_or_default(),
             },
         })
     }

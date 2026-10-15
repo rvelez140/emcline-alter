@@ -22,6 +22,7 @@ pub fn routes() -> Router<Shared> {
     Router::new()
         .route("/accounts", get(list).post(create))
         .route("/accounts/test", post(test))
+        .route("/accounts/jmap", post(create_jmap))
         .route("/accounts/{id}", patch(update).delete(remove))
 }
 
@@ -31,7 +32,7 @@ pub fn dto(a: &MailAccount) -> Value {
         "id": a.id, "userId": a.user_id, "displayName": a.display_name, "email": a.email, "color": a.color,
         "imapHost": a.imap_host, "imapPort": a.imap_port, "imapSecure": a.imap_secure,
         "smtpHost": a.smtp_host, "smtpPort": a.smtp_port, "smtpSecure": a.smtp_secure,
-        "username": a.username, "authType": a.auth_type, "source": a.source, "signatureHtml": a.signature_html,
+        "username": a.username, "authType": a.auth_type, "protocol": a.protocol, "jmapUrl": a.jmap_url, "source": a.source, "signatureHtml": a.signature_html,
         "enabled": a.enabled, "status": a.status, "lastError": a.last_error, "lastSyncAt": a.last_sync_at,
         "sortOrder": a.sort_order, "createdAt": a.created_at,
     })
@@ -244,6 +245,56 @@ async fn create(
     Ok(Json(dto(&row)))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JmapInput {
+    display_name: String,
+    email: String,
+    jmap_url: String,
+    username: String,
+    password: String,
+    color: Option<String>,
+}
+
+/// Cuenta JMAP (Stalwart, Fastmail…): sin IMAP/SMTP; sincronización con push.
+async fn create_jmap(
+    State(st): State<Shared>,
+    Session(u): Session,
+    Body(i): Body<JmapInput>,
+) -> ApiResult<Json<Value>> {
+    let name = i.display_name.trim().to_string();
+    validate::len("displayName", &name, 1, 100)?;
+    let email = validate::email("email", &i.email)?;
+    color(&i.color)?;
+    let url = i.jmap_url.trim().trim_end_matches('/').to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(ApiError::bad_request(
+            "Datos inválidos — jmapUrl: debe empezar por https://",
+        ));
+    }
+    validate::len("username", i.username.trim(), 1, 255)?;
+    validate::len("password", &i.password, 1, 1000)?;
+    super::mail_jmap::test(&st, &url, i.username.trim(), &i.password)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("No se pudo conectar por JMAP — {e}")))?;
+    let row: MailAccount = sqlx::query_as(
+        "insert into mail_accounts (user_id, display_name, email, color, username, secret_enc, protocol, jmap_url,
+           imap_host, smtp_host)
+         values ($1,$2,$3,coalesce($4,'#2563eb'),$5,$6,'jmap',$7,'','') returning *",
+    )
+    .bind(u.id)
+    .bind(&name)
+    .bind(&email)
+    .bind(&i.color)
+    .bind(i.username.trim())
+    .bind(st.core.master_key.encrypt(&i.password))
+    .bind(&url)
+    .fetch_one(&st.db)
+    .await?;
+    notify(&st, WorkerControl::AccountChanged { account_id: row.id }).await;
+    Ok(Json(dto(&row)))
+}
+
 async fn get_owned(st: &Shared, user: Uuid, id: Uuid) -> ApiResult<MailAccount> {
     sqlx::query_as("select * from mail_accounts where id = $1 and user_id = $2")
         .bind(id)
@@ -283,7 +334,20 @@ async fn update(
     let mut secret_enc = cur.secret_enc.clone();
     let mut status = cur.status.clone();
     let mut last_error = cur.last_error.clone();
-    if connection_changed && cur.auth_type == "password" {
+    if connection_changed && cur.auth_type == "password" && cur.protocol == "jmap" {
+        // JMAP: solo cambia la contraseña; se prueba contra el servidor JMAP
+        if let Some(p) = &i.password {
+            let url = cur.jmap_url.clone().unwrap_or_default();
+            super::mail_jmap::test(&st, &url, &cur.username, p)
+                .await
+                .map_err(|e| {
+                    ApiError::bad_request(format!("No se pudo conectar por JMAP — {e}"))
+                })?;
+            secret_enc = st.core.master_key.encrypt(p);
+            status = "pending".into();
+            last_error = None;
+        }
+    } else if connection_changed && cur.auth_type == "password" {
         let password = match &i.password {
             Some(p) => p.clone(),
             None => st.core.master_key.decrypt(&cur.secret_enc)?,

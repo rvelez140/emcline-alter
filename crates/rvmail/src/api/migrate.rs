@@ -57,3 +57,26 @@ async fn baseline_from_drizzle(db: &PgPool) -> Result<()> {
     }
     Ok(())
 }
+
+/// Espera (hasta 5 min) a que estén aplicadas todas las migraciones que conoce este binario.
+pub async fn wait_until_applied(db: &PgPool) -> Result<()> {
+    let latest = MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0);
+    for attempt in 0..150 {
+        let ok: bool = sqlx::query_scalar(
+            "select coalesce(to_regclass('_sqlx_migrations') is not null
+                and exists(select 1 from _sqlx_migrations where version = $1 and success), false)",
+        )
+        .bind(latest)
+        .fetch_one(db)
+        .await
+        .unwrap_or(false);
+        if ok {
+            return Ok(());
+        }
+        if attempt == 0 {
+            tracing::info!("esperando a que la API aplique las migraciones…");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+    anyhow::bail!("la base de datos no tiene el esquema esperado (¿la API no arrancó?)")
+}

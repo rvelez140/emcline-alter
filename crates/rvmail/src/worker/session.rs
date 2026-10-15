@@ -68,6 +68,9 @@ struct FolderState {
     modseq: Option<u64>,
 }
 
+#[path = "session_jmap.rs"]
+mod jmap_impl;
+
 enum Outcome {
     Stopped,
     AuthFailed,
@@ -160,6 +163,9 @@ impl AccountSession {
             return Ok(Outcome::Stopped);
         }
         self.set_status(AccountStatus::Syncing, None).await;
+        if account.protocol == "jmap" {
+            return self.serve_jmap(account).await;
+        }
         let connected = if account.auth_type == "oauth2" {
             // Gmail / Outlook / Yahoo: access token fresco y XOAUTH2
             let token = match crate::oauth::access_token(
@@ -697,38 +703,44 @@ impl Syncer<'_> {
     }
 
     async fn insert_rows(&self, rows: &[MessageRow]) -> Result<usize> {
-        let mut n = 0;
-        for r in rows {
-            let res = sqlx::query(
-                "insert into messages (account_id, folder_id, uid, message_id, in_reply_to, thread_key, subject,
-                   from_name, from_address, \"to\", cc, date, snippet, flags, seen, flagged, has_attachments, size)
-                 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-                 on conflict (folder_id, uid) do nothing",
-            )
-            .bind(r.account_id)
-            .bind(r.folder_id)
-            .bind(i64::from(r.uid))
-            .bind(&r.message_id)
-            .bind(&r.in_reply_to)
-            .bind(&r.thread_key)
-            .bind(&r.subject)
-            .bind(&r.from_name)
-            .bind(&r.from_address)
-            .bind(Json(&r.to))
-            .bind(Json(&r.cc))
-            .bind(r.date)
-            .bind(&r.snippet)
-            .bind(Json(&r.flags))
-            .bind(r.seen)
-            .bind(r.flagged)
-            .bind(r.has_attachments)
-            .bind(r.size as i32)
-            .execute(&self.ctx.db)
-            .await?;
-            n += res.rows_affected() as usize;
-        }
-        Ok(n)
+        insert_rows(&self.ctx.db, rows).await
     }
+}
+
+/// Inserta mensajes nuevos (IMAP o JMAP); ignora los que ya existen.
+pub(super) async fn insert_rows(db: &PgPool, rows: &[MessageRow]) -> Result<usize> {
+    let mut n = 0;
+    for r in rows {
+        let res = sqlx::query(
+            "insert into messages (account_id, folder_id, uid, remote_id, message_id, in_reply_to, thread_key, subject,
+               from_name, from_address, \"to\", cc, date, snippet, flags, seen, flagged, has_attachments, size)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+             on conflict (folder_id, uid) do nothing",
+        )
+        .bind(r.account_id)
+        .bind(r.folder_id)
+        .bind(r.uid)
+        .bind(&r.remote_id)
+        .bind(&r.message_id)
+        .bind(&r.in_reply_to)
+        .bind(&r.thread_key)
+        .bind(&r.subject)
+        .bind(&r.from_name)
+        .bind(&r.from_address)
+        .bind(Json(&r.to))
+        .bind(Json(&r.cc))
+        .bind(r.date)
+        .bind(&r.snippet)
+        .bind(Json(&r.flags))
+        .bind(r.seen)
+        .bind(r.flagged)
+        .bind(r.has_attachments)
+        .bind(r.size as i32)
+        .execute(db)
+        .await?;
+        n += res.rows_affected() as usize;
+    }
+    Ok(n)
 }
 
 #[derive(Default, Debug)]
