@@ -1,0 +1,43 @@
+#cloud-config
+# VPS NUEVO desde cero (Contabo, Hetzner, DigitalOcean… aceptan cloud-init / "user data").
+# Deja el servidor con firewall, Docker y RV Mail instalado en /opt/rvmail en modo caddy.
+#
+# Antes de usarlo cambia:
+#   - REPO_URL (tu repositorio; si es privado, usa un deploy token en la URL)
+#   - DOMAIN y ACME_EMAIL
+#   - la clave SSH pública
+# El DNS del dominio debe apuntar a la IP del VPS para que Caddy obtenga el certificado.
+
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - curl
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+
+users:
+  - name: rvadmin
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REEMPLAZA_CON_TU_CLAVE_PUBLICA
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/90-hardening.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin prohibit-password
+
+runcmd:
+  - [bash, -c, "ufw default deny incoming && ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp && ufw --force enable"]
+  - [bash, -c, "curl -fsSL https://get.docker.com | sh && systemctl enable --now docker"]
+  - [bash, -c, "usermod -aG docker rvadmin"]
+  - [bash, -c, "systemctl restart ssh || systemctl restart sshd"]
+  - [bash, -c, "git clone REPO_URL /opt/rvmail"]
+  - [bash, -c, "cd /opt/rvmail && ./scripts/install.sh --domain DOMAIN --email ACME_EMAIL --mode caddy --yes"]
+  - [bash, -c, "(crontab -l 2>/dev/null; echo '30 2 * * * cd /opt/rvmail && ./scripts/backup.sh >> backups/backup.log 2>&1') | crontab -"]
+
+final_message: "RV Mail instalado tras $UPTIME s. Abre https://DOMAIN"

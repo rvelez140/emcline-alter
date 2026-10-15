@@ -1,0 +1,27 @@
+{
+  "name": "@rvmail/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch --env-file-if-exists=../../.env.dev src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@rvmail/db": "workspace:*",
+    "@rvmail/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "imapflow": "^2.4.2",
+    "ioredis": "^5.6.1",
+    "mailparser": "^3.9.0",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  }
+}

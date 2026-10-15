@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Necesario para `pnpm deploy` (imágenes Docker) con paquetes del workspace
+injectWorkspacePackages: true
+
+onlyBuiltDependencies:
+  - argon2
+  - esbuild
