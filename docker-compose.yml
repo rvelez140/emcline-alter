@@ -91,6 +91,10 @@ services:
       AAPANEL_API_KEY: ${AAPANEL_API_KEY:-}
       AAPANEL_VERIFY_TLS: ${AAPANEL_VERIFY_TLS:-false}
       AGENT_SEND_LIMIT_PER_HOUR: ${AGENT_SEND_LIMIT_PER_HOUR:-30}
+      STALWART_URL: ${STALWART_URL:-http://stalwart:8080}
+      STALWART_ADMIN_USER: ${STALWART_ADMIN_USER:-}
+      STALWART_ADMIN_PASSWORD: ${STALWART_ADMIN_PASSWORD:-}
+      MAILSERVER_JMAP_URL: ${MAILSERVER_JMAP_URL:-}
       SSO_GOOGLE_CLIENT_ID: ${SSO_GOOGLE_CLIENT_ID:-}
       SSO_GOOGLE_CLIENT_SECRET: ${SSO_GOOGLE_CLIENT_SECRET:-}
       SSO_MICROSOFT_CLIENT_ID: ${SSO_MICROSOFT_CLIENT_ID:-}
@@ -140,6 +144,30 @@ services:
     depends_on:
       app:
         condition: service_healthy # la API aplica las migraciones al arrancar
+    logging: *logging
+
+  # Servidor de correo Stalwart (opcional, perfil "stalwart"): SMTP, IMAP, JMAP,
+  # CalDAV/CardDAV en Rust. RV Mail lo administra por JMAP (MAILSERVER_PROVIDER=stalwart).
+  # El instalador completa su configuración inicial (rvmail install).
+  stalwart:
+    image: stalwartlabs/stalwart:${STALWART_VERSION:-latest}
+    profiles: ["stalwart"]
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+      - "4190:4190"
+      # Administración/JMAP solo local: RV Mail habla con él por la red interna
+      - "127.0.0.1:${STALWART_HTTP_PORT:-8180}:8080"
+    environment:
+      # Credencial fija de recuperación (evita la contraseña aleatoria del primer arranque)
+      STALWART_RECOVERY_ADMIN: admin:${STALWART_ADMIN_PASSWORD:-}
+    volumes:
+      - stalwart_data:/var/lib/stalwart
+      - stalwart_etc:/etc/stalwart
+    mem_limit: ${STALWART_MEM_LIMIT:-512m}
     logging: *logging
 
   postgres:
@@ -197,6 +225,8 @@ networks:
         - subnet: ${DOCKER_SUBNET:-172.30.57.0/24}
 
 volumes:
+  stalwart_data:
+  stalwart_etc:
   postgres_data:
   redis_data:
   caddy_data:

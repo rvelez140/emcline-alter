@@ -43,9 +43,9 @@ contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
 - [ ] S3b. Configurar proveedores desde `rvmail config` (fase I)
 
 ## Fase J — JMAP (el protocolo moderno de correo)
-- [ ] J1. Cliente JMAP (RFC 8620/8621) en el worker: sesión, Mailbox/Email/changes, push (EventSource) — cuentas `protocol = jmap`
-- [ ] J2. Envío por JMAP (EmailSubmission) y autodetección (`/.well-known/jmap`)
-- [ ] J3. Proveedor de servidor **Stalwart** (Rust, JMAP/IMAP/SMTP/CalDAV/CardDAV) junto a aaPanel: dominios, buzones, DKIM vía su API
+- [x] J1. Cliente JMAP (RFC 8620/8621) en el worker: sesión, Mailbox/Email/changes, push (EventSource) — cuentas `protocol = jmap`
+- [x] J2. Envío por JMAP (EmailSubmission) y autodetección (`/.well-known/jmap`)
+- [x] J3. Proveedor de servidor **Stalwart** (Rust, JMAP/IMAP/SMTP/CalDAV/CardDAV) junto a aaPanel: dominios, buzones, DKIM vía su API
 
 ## Fase I — Instalador y administración (`rvmail` CLI)
 - [ ] I1. `rvmail install`: asistente interactivo (dominio, proxy caddy/external, aaPanel/Stalwart/ninguno, SSO, rol primario/respaldo), autodetección de arquitectura, puertos, aaPanel, IP pública y DNS

@@ -63,6 +63,16 @@ dos servicios: `app` (`rvmail api`) y `worker` (`rvmail worker`). Ver `docs/RUST
 - Publica `message.new`, `message.updated`, `folder.updated`, `account.status`
   en `rvmail:events:<userId>`. Healthcheck por archivo de latido.
 
+### Cuentas JMAP (`protocol = jmap`)
+- `crates/rvmail/src/jmap/`: cliente JMAP (RFC 8620/8621): sesión, `Mailbox/get`,
+  `Email/query|get|set`, `EmailSubmission/set` y push por EventSource.
+- El worker (`worker/session_jmap.rs`) sincroniza igual que con IMAP pero por
+  ids JMAP: `folders.path` guarda el id del buzón y `messages.remote_id` el del
+  correo (`uid` es un hash estable). La API (`api/mail_jmap.rs`) usa JMAP para
+  leer, marcar, mover, borradores y enviar.
+- `api/discover.rs`: autodetección (servidor integrado → `/.well-known/jmap` →
+  autoconfig/ISPDB → MX).
+
 ### web (PWA)
 - Vite + React 19 + Tailwind 4 + vite-plugin-pwa (service worker, manifest).
 - Diseño de 3 paneles en escritorio (cuentas/carpetas · lista · lectura) y
@@ -72,8 +82,9 @@ dos servicios: `app` (`rvmail api`) y `worker` (`rvmail worker`). Ver `docs/RUST
 
 ### Servidor de correo integrado y agentes de IA
 
-- `crates/rvmail/src/api/mailserver.rs`: enum `Provider` con un adaptador
-  para el Mail Server de aaPanel (API firmada `request_time`/`request_token`).
+- `crates/rvmail/src/api/mailserver.rs`: enum `Provider` con adaptadores
+  para el Mail Server de aaPanel (API firmada `request_time`/`request_token`)
+  y para Stalwart (`api/stalwart.rs`, JMAP de gestión `urn:stalwart:jmap`).
   Los buzones alojados se conectan como cuentas normales y el login acepta las
   credenciales del buzón (verificadas por IMAP). Ver `docs/MAILSERVER.md`.
 - `crates/rvmail/src/api/mcp.rs`: servidor MCP sin estado (Streamable HTTP, `POST /api/mcp`)

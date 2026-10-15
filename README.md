@@ -3,13 +3,14 @@
 Cliente de correo **multi-cuenta**, **autoalojable** y **accesible desde cualquier
 dispositivo** — de [Soluciones RV](https://solucionesrv.net).
 
-- Bandeja unificada de todas tus cuentas (IMAP/SMTP: servidor propio, cPanel, Gmail, Outlook, Yahoo, iCloud…)
+- Bandeja unificada de todas tus cuentas (IMAP/SMTP o **JMAP**: servidor propio, cPanel, Gmail, Outlook, Yahoo, iCloud, Fastmail…)
+- Autodetección de la configuración de cada cuenta (JMAP, autoconfig/ISPDB, MX)
 - Notificación inmediata de correo nuevo (IMAP IDLE + tiempo real en el navegador)
 - Búsqueda en español sobre todas las cuentas
 - App instalable (PWA) en iPhone, Android, Windows y Linux
 - Entrar con **Google, Microsoft o Yahoo** y conectar Gmail/Outlook/Yahoo sin contraseñas de aplicación ([docs/SSO.md](docs/SSO.md))
 - Contraseñas y tokens de cuentas cifrados (AES-256-GCM)
-- **Servidor de correo integrado**: administra dominios y buzones del Mail Server de aaPanel del mismo VPS, con verificación DNS ([docs/MAILSERVER.md](docs/MAILSERVER.md))
+- **Servidor de correo integrado**: administra dominios y buzones del Mail Server de aaPanel o de **Stalwart** del mismo VPS, con verificación DNS ([docs/MAILSERVER.md](docs/MAILSERVER.md))
 - **Agentes de IA**: servidor MCP para que Claude u otros agentes lean, redacten y envíen correo, con tokens de permisos limitados ([docs/AI-AGENT.md](docs/AI-AGENT.md))
 - Instalación en un comando con Docker (amd64 y ARM); convive con aaPanel y lo detecta solo
 

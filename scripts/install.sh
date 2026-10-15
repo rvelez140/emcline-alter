@@ -10,7 +10,7 @@
 #                        están ocupados —p. ej. aaPanel— usa external)
 #   --email CORREO       Correo para Let's Encrypt (modo caddy)
 #   --port PUERTO        Puerto local en modo external (por defecto 8088)
-#   --mailserver MODO    aapanel | none | auto (por defecto auto: si detecta el
+#   --mailserver MODO    aapanel | stalwart | none | auto (por defecto auto: si detecta el
 #                        Mail Server de aaPanel en este VPS, lo integra)
 #   --aapanel-key CLAVE  Clave de la API de aaPanel (Settings → API interface)
 #   --mail-host HOST     Nombre del servidor de correo (ej. mail.solucionesrv.net)
@@ -109,7 +109,19 @@ if [[ "$MAILSERVER" == "auto" ]]; then
     MAILSERVER="none"
   fi
 fi
-[[ "$MAILSERVER" == "aapanel" || "$MAILSERVER" == "none" ]] || die "--mailserver debe ser aapanel, none o auto"
+[[ "$MAILSERVER" =~ ^(aapanel|stalwart|none)$ ]] || die "--mailserver debe ser aapanel, stalwart, none o auto"
+
+if [[ "$MAILSERVER" == "stalwart" ]]; then
+  # Stalwart necesita los puertos de correo del host: no puede convivir con Postfix
+  for p in 25 465 587 993; do
+    port_busy "$p" && die "El puerto $p ya está en uso (¿Postfix/aaPanel?). Usa --mailserver aapanel o libera el puerto."
+  done
+  if [[ -z "$MAIL_HOST" && "$ASSUME_YES" != "true" ]]; then
+    read -r -p "Nombre del servidor de correo (ej. mail.${DOMAIN#*.}): " MAIL_HOST
+  fi
+  [[ -n "$MAIL_HOST" ]] || MAIL_HOST="mail.${DOMAIN#*.}"
+  c_ok "Servidor de correo Stalwart: $MAIL_HOST"
+fi
 
 if [[ "$MAILSERVER" == "aapanel" ]]; then
   [[ -n "$PANEL_PORT" ]] || PANEL_PORT=7800
@@ -167,11 +179,17 @@ if [[ "$MAILSERVER" == "aapanel" ]]; then
   set_env AAPANEL_URL "https://host.docker.internal:${PANEL_PORT}"
   [[ -n "$AAPANEL_KEY" ]] && set_env AAPANEL_API_KEY "$AAPANEL_KEY"
 fi
-if [[ "$MODE" == "caddy" ]]; then
-  set_env COMPOSE_PROFILES "caddy"
-else
-  set_env COMPOSE_PROFILES ""
+PROFILES=()
+[[ "$MODE" == "caddy" ]] && PROFILES+=("caddy")
+if [[ "$MAILSERVER" == "stalwart" ]]; then
+  PROFILES+=("stalwart")
+  set_env MAILSERVER_HOSTNAME "$MAIL_HOST"
+  set_env STALWART_URL "http://stalwart:8080"
+  set_env STALWART_ADMIN_USER "admin"
+  [[ -n "$(get_env STALWART_ADMIN_PASSWORD)" ]] || set_env STALWART_ADMIN_PASSWORD "$(gen)"
+  [[ -n "$(get_env MAILSERVER_JMAP_URL)" ]] || set_env MAILSERVER_JMAP_URL "https://$MAIL_HOST"
 fi
+set_env COMPOSE_PROFILES "$(IFS=,; echo "${PROFILES[*]}")"
 
 # ---------------------------------------------------------------- arranque
 # Con imágenes precompiladas (IMAGE_PREFIX=ghcr.io/…, amd64/arm64) solo se descargan;
@@ -197,7 +215,7 @@ for _ in $(seq 1 60); do
 done
 [[ "$ok" == "true" ]] || {
   docker compose ps
-  die "La app no respondió. Revisa: docker compose logs api worker web"
+  die "La app no respondió. Revisa: docker compose logs app worker"
 }
 c_ok "RV Mail está funcionando"
 
@@ -224,6 +242,13 @@ if [[ "$MAILSERVER" == "aapanel" ]]; then
   echo "      lista blanca de IPs:  $(get_env API_IP || true)"
   [[ -z "$(get_env AAPANEL_API_KEY)" ]] && echo "   2. Pon la clave en .env (AAPANEL_API_KEY=…) y ejecuta: docker compose up -d"
   echo "   Comprueba la conexión en RV Mail → Configuración → Servidor de correo."
+fi
+if [[ "$MAILSERVER" == "stalwart" ]]; then
+  echo
+  echo " Servidor de correo Stalwart ($MAIL_HOST):"
+  echo "   Administrador: admin / contraseña en .env (STALWART_ADMIN_PASSWORD)"
+  echo "   Publica la URL JMAP https://$MAIL_HOST en tu proxy hacia 127.0.0.1:$(get_env STALWART_HTTP_PORT || echo 8180)"
+  echo "   Alta de dominios y registros DNS: RV Mail → Configuración → Servidor de correo."
 fi
 echo
 echo " Primer acceso: crea la cuenta de administrador en la pantalla inicial."
