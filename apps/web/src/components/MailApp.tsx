@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Menu, PenSquare, Search } from 'lucide-react';
-import { useState } from 'react';
-import { api, MessageFull, Special, User } from '../api';
+import { useEffect, useState } from 'react';
+import { api, MessageFull, Special, takeSsoNotice, User } from '../api';
+import { parseMailto } from '../native';
 import { useLiveEvents } from '../useLiveEvents';
 import { AccountDialog } from './AccountDialog';
 import { Compose, ComposeDraft } from './Compose';
 import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
+import { SettingsDialog } from './SettingsDialog';
 import { Sidebar } from './Sidebar';
 
 export type Selection =
@@ -26,8 +28,26 @@ export function MailApp({ user }: { user: User }) {
   const [pane, setPane] = useState<Pane>('list');
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [accountDialog, setAccountDialog] = useState<{ id?: string } | null>(null);
+  const [settings, setSettings] = useState(false);
+  // Aviso al volver de conectar una cuenta o vincular un proveedor (OAuth)
+  const [notice, setNotice] = useState(() => takeSsoNotice());
 
   const hasAccounts = (accounts.data?.length ?? 0) > 0;
+
+  // Enlaces mailto: (manejador del navegador o de la app de escritorio) → redactar
+  const firstAccount = accounts.data?.[0]?.id;
+  useEffect(() => {
+    const raw = new URLSearchParams(location.search).get('mailto');
+    const m = raw ? parseMailto(raw) : null;
+    if (!m || !firstAccount) return;
+    history.replaceState(null, '', '/');
+    setCompose({
+      accountId: firstAccount,
+      to: [m.to, m.cc].filter(Boolean).join(', '),
+      subject: m.subject,
+      body: m.body,
+    });
+  }, [firstAccount]);
 
   function select(s: Selection) {
     setSelection(s);
@@ -41,8 +61,9 @@ export function MailApp({ user }: { user: User }) {
   }
 
   function reply(m: MessageFull, all: boolean) {
-    const to = [m.fromAddress, ...(all ? [...m.to, ...m.cc].map((a) => a.address) : [])]
-      .filter((a): a is string => !!a && a.toLowerCase() !== m.accountEmail.toLowerCase());
+    const to = [m.fromAddress, ...(all ? [...m.to, ...m.cc].map((a) => a.address) : [])].filter(
+      (a): a is string => !!a && a.toLowerCase() !== m.accountEmail.toLowerCase(),
+    );
     setCompose({
       accountId: m.accountId,
       to: [...new Set(to)].join(', '),
@@ -73,6 +94,7 @@ export function MailApp({ user }: { user: User }) {
           onAddAccount={() => setAccountDialog({})}
           onEditAccount={(id) => setAccountDialog({ id })}
           onLogout={logout}
+          onSettings={() => setSettings(true)}
         />
       </aside>
 
@@ -139,8 +161,30 @@ export function MailApp({ user }: { user: User }) {
         )}
       </main>
 
-      {compose && (
-        <Compose accounts={accounts.data ?? []} draft={compose} onClose={() => setCompose(null)} />
+      {compose && <Compose accounts={accounts.data ?? []} draft={compose} onClose={() => setCompose(null)} />}
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl px-4 py-3 text-sm shadow-lg ${
+            notice.error ? 'bg-red-600 text-white' : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+          }`}
+        >
+          {notice.error ?? notice.ok}
+          <button className="opacity-70 hover:opacity-100" onClick={() => setNotice(null)} aria-label="Cerrar aviso">
+            ✕
+          </button>
+        </div>
+      )}
+      {settings && (
+        <SettingsDialog
+          user={user}
+          accounts={accounts.data ?? []}
+          onClose={() => {
+            setSettings(false);
+            // Un buzón nuevo puede haberse agregado a las cuentas del usuario
+            void qc.invalidateQueries({ queryKey: ['accounts'] });
+          }}
+        />
       )}
       {accountDialog && (
         <AccountDialog

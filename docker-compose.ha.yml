@@ -1,0 +1,10 @@
+# RV Mail — alta disponibilidad (servidor principal + respaldo). Se activa con
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.ha.yml   (lo pone `rvmail ha`)
+#
+# Publica Postgres SOLO en la IP privada (WireGuard u otra red privada) para que
+# el respaldo replique en streaming. Nunca en la IP pública.
+
+services:
+  postgres:
+    ports:
+      - "${PG_REPLICATION_BIND:-10.57.0.1}:${PG_REPLICATION_PORT:-5433}:5432"

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RV Mail</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --line: #cbd5e1;
+        --brand: #2563eb;
+        --error: #dc2626;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #020617;
+          --card: #0f172a;
+          --text: #e2e8f0;
+          --muted: #94a3b8;
+          --line: #334155;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        padding: 16px;
+      }
+      main {
+        width: 100%;
+        max-width: 400px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px;
+      }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      p { color: var(--muted); margin: 0 0 20px; }
+      label { display: block; font-weight: 600; margin-bottom: 6px; }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      input:focus { outline: 2px solid var(--brand); border-color: transparent; }
+      button {
+        width: 100%;
+        margin-top: 16px;
+        padding: 10px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--brand);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: wait; }
+      .error { color: var(--error); margin: 12px 0 0; min-height: 1.5em; }
+      small { display: block; color: var(--muted); margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>RV Mail</h1>
+      <p>Conéctate a tu servidor de correo.</p>
+      <form id="f">
+        <label for="server">Dirección del servidor</label>
+        <input id="server" placeholder="correo.tuempresa.com" autocomplete="url" autocapitalize="off" spellcheck="false" required autofocus />
+        <button id="go" type="submit">Conectar</button>
+        <p class="error" id="err" role="alert"></p>
+      </form>
+      <small>Es la misma dirección que usas en el navegador. Tu administrador te la puede dar.</small>
+    </main>
+    <script>
+      const err = document.getElementById('err');
+      const go = document.getElementById('go');
+      const input = document.getElementById('server');
+      const fromUrl = new URLSearchParams(location.search).get('error');
+      if (fromUrl) err.textContent = fromUrl;
+
+      document.getElementById('f').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        err.textContent = '';
+        let raw = input.value.trim().replace(/\/+$/, '');
+        if (!raw) return;
+        if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+        go.disabled = true;
+        go.textContent = 'Comprobando…';
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const res = await fetch(raw + '/.well-known/rvmail', { signal: ctrl.signal });
+          clearTimeout(t);
+          const info = res.ok ? await res.json() : null;
+          if (!info || info.service !== 'rvmail') throw new Error('Ese servidor no es un RV Mail.');
+          await window.__TAURI__.core.invoke('open_server', { url: raw });
+        } catch (x) {
+          err.textContent =
+            x && x.name === 'AbortError'
+              ? 'El servidor no responde. Revisa la dirección y tu conexión.'
+              : x instanceof TypeError
+                ? 'No se pudo conectar. Revisa la dirección (debe tener HTTPS válido).'
+                : String(x.message || x);
+          go.disabled = false;
+          go.textContent = 'Conectar';
+        }
+      });
+    </script>
+  </body>
+</html>

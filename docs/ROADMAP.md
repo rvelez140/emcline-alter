@@ -1,7 +1,7 @@
 # Roadmap de RV Mail
 
 Marca `[x]` cuando una tarea esté terminada, compilando y probada contra
-GreenMail en desarrollo. Trabaja en orden.
+GreenMail en desarrollo. Trabaja en orden: R → S → J → I → H → C, luego 1–6.
 
 ## Fase 0 — Base (incluida en el esqueleto inicial)
 - [x] Monorepo pnpm, TypeScript, estructura de apps y paquetes
@@ -10,6 +10,63 @@ GreenMail en desarrollo. Trabaja en orden.
 - [x] API: salud, registro/login, CRUD de cuentas con prueba de conexión
 - [x] Worker: leases, sincronización inicial de encabezados, IDLE en INBOX
 - [x] Web: login, alta de cuentas, bandeja unificada, lectura saneada, SSE
+
+## Fase 0.5 — Servidor de correo, agentes de IA e infraestructura
+- [x] `.env.example`, `.env.dev.example`, `.gitignore`, `.dockerignore` (el instalador no funcionaba sin ellos)
+- [x] Healthcheck del worker (latido) y `/api/health` sin detalles internos
+- [x] CI en GitHub Actions + imágenes multi-arquitectura (amd64/arm64) en GHCR
+- [x] Integración con el Mail Server de aaPanel: dominios, buzones, verificación DNS
+- [x] Inicio de sesión con las credenciales del buzón (alta automática de usuario y cuenta)
+- [x] Autoconfiguración de cuentas de dominios alojados
+- [x] Tokens de API con permisos (leer/borrador/enviar/organizar), por cuenta y con caducidad
+- [x] Servidor MCP (`/api/mcp`) para agentes de IA + API REST con token
+- [x] Instalador: detecta aaPanel, su Mail Server, el puerto del panel y el hostname de Postfix
+- [ ] Verificar los nombres de función del plugin `mail_sys` contra un aaPanel real (ver docs/MAILSERVER.md)
+
+## Fase R — Migración a Rust (por fases, sin detener el producto)
+
+Objetivo: backend en un único binario `rvmail` (api + worker + instalador),
+pensado para VPS pequeños y ARM (Oracle Ampere A1). La base de datos y el
+contrato REST/SSE/MCP no cambian: cada pieza se reemplaza sin tocar las demás.
+
+- [x] R1. Workspace Cargo (`crates/`): `rvmail-core` (config, BD con sqlx, cifrado compatible con el formato `v1:` actual, eventos Redis)
+- [x] R2. Worker en Rust (`rvmail worker`): leases en Redis, sincronización IMAP, IDLE, control por Redis; reemplaza `apps/worker`
+- [x] R3. API en Rust (`rvmail api`, axum): auth/cookies, cuentas, correo, SSE, tokens, MCP, servidor de correo; mismos endpoints
+- [x] R4. Migraciones con `sqlx migrate` (se conservan las SQL ya aplicadas) y retiro de NestJS/Drizzle
+- [x] R5. Imagen única `rvmail` (distroless/scratch, amd64+arm64) que sirve también la web estática; compose simplificado
+- [x] R6. Comparativa de consumo (RAM/CPU/imagen) Node vs Rust documentada
+
+## Fase S — Inicio de sesión y cuentas con Google, Microsoft y Yahoo
+- [x] S1. SSO (OpenID Connect) para entrar a RV Mail: Google, Microsoft (Entra ID), Yahoo; botones en el login; vinculación por correo verificado
+- [x] S2. Cuentas de correo por OAuth2 (XOAUTH2 en IMAP/SMTP) con refresco automático de tokens: Gmail, Outlook/M365, Yahoo
+- [x] S3a. Guía de registro de apps (docs/SSO.md) y configuración por `.env`
+- [x] S3b. Configurar proveedores desde `rvmail config` (fase I)
+
+## Fase J — JMAP (el protocolo moderno de correo)
+- [x] J1. Cliente JMAP (RFC 8620/8621) en el worker: sesión, Mailbox/Email/changes, push (EventSource) — cuentas `protocol = jmap`
+- [x] J2. Envío por JMAP (EmailSubmission) y autodetección (`/.well-known/jmap`)
+- [x] J3. Proveedor de servidor **Stalwart** (Rust, JMAP/IMAP/SMTP/CalDAV/CardDAV) junto a aaPanel: dominios, buzones, DKIM vía su API
+
+## Fase I — Instalador y administración (`rvmail` CLI)
+- [x] I1. `rvmail install`: asistente interactivo (dominio, proxy caddy/external, aaPanel/Stalwart/ninguno, SSO, rol primario/respaldo), autodetección de arquitectura, puertos, aaPanel, IP pública y DNS
+- [x] I2. `rvmail config`: menú para modificar cualquier ajuste después de instalar (reescribe `.env` y reinicia lo necesario)
+- [x] I3. `rvmail doctor` (DNS, TLS, puertos, conexión a panel/IMAP/SMTP), `rvmail update`, `rvmail backup`/`restore`
+- [x] I4. Instalador de una línea (`curl … | sh`) que descarga el binario correcto (x86_64/aarch64)
+- [x] I5. Soporte Podman (Quadlet + `podman compose`) además de Docker
+
+## Fase H — Alta disponibilidad: servidor principal + respaldo ARM (Oracle)
+- [x] H1. Rol `primary`/`standby` en la instalación; red privada entre VPS con WireGuard
+- [x] H2. Réplica de Postgres en streaming hacia el respaldo (solo lectura) + backups cifrados (restic) a Oracle Object Storage/S3
+- [x] H3. Continuidad del correo: sin MX secundario (los remitentes reintentan 4–5 días y un MX de respaldo atrae spam); buzones y configuración de Stalwart en restic y `failover promote --restore-mail`
+- [x] H4. `rvmail failover promote` y guía de conmutación (DNS / Cloudflare health checks); `rvmail doctor` revisa la réplica
+- [x] H5. Perfil de recursos para VPS pequeños (límites de memoria, Postgres/Redis afinados, `WORKER_MAX_ACCOUNTS`)
+
+## Fase C — Clientes nativos y cliente en Rust
+- [x] C1. API para apps nativas: tokens de sesión con refresh, CORS controlado, `/.well-known/rvmail` (descubrimiento del servidor)
+- [x] C2. App de escritorio y móvil con **Tauri 2** (Rust): Windows, macOS, Linux, Android, iOS; bandeja del sistema, `mailto:`, notificaciones nativas — escritorio listo (Linux probado; Windows/macOS por CI). Móvil: falta `tauri android/ios init` y push con la app cerrada (FCM/APNs)
+- [ ] C3. Cliente web reescrito en Rust/WASM (Leptos) por pantallas, compartiendo tipos con el backend; la PWA React se retira al completar la paridad
+  - [x] Tipos compartidos (`crates/rvmail-types`), login, bandeja unificada/carpetas, búsqueda, lectura segura, tiempo real, móvil — servido en `/next/`
+  - [ ] Redactar/responder, cuentas, configuración (IA, servidor de correo, SSO), avisos
 
 ## Fase 1 — Correo completo (v1)
 - [ ] Sincronización incremental real con CONDSTORE/QRESYNC y detección de borrados (EXPUNGE / VANISHED)
@@ -26,7 +83,7 @@ GreenMail en desarrollo. Trabaja en orden.
 - [ ] Pruebas e2e (Playwright) contra GreenMail
 
 ## Fase 2 — Productividad
-- [ ] Enviar más tarde (cola en Redis + BullMQ)
+- [ ] Enviar más tarde (cola en Redis)
 - [ ] Posponer (snooze) mensajes
 - [ ] Plantillas y respuestas rápidas
 - [ ] Reglas/filtros del lado cliente
@@ -34,26 +91,24 @@ GreenMail en desarrollo. Trabaja en orden.
 - [ ] Exportar/importar (EML, MBOX)
 
 ## Fase 3 — Calendario, contactos, tareas, notas
-- [ ] Servicio Radicale (CalDAV/CardDAV) en compose + cliente CalDAV/CardDAV en la API (`tsdav`)
+- [ ] CalDAV/CardDAV (Radicale o Stalwart) + cliente en la API
 - [ ] Calendario: vistas día/semana/mes, invitaciones iCal desde correos (aceptar/rechazar)
 - [ ] Contactos: libreta por cuenta + autocompletado al redactar, grupos
 - [ ] Tareas (VTODO) y notas
 - [ ] Sincronizar calendarios/contactos de Google y Microsoft (OAuth)
 
 ## Fase 4 — Cuentas OAuth y proveedores
-- [ ] Gmail con OAuth2 (XOAUTH2 en IMAP/SMTP) — requiere app en Google Cloud
-- [ ] Microsoft 365 / Outlook.com con OAuth2 — requiere app en Entra ID
-- [ ] JMAP para servidores que lo soportan (Stalwart)
+- [ ] (Movido a las fases S y J)
 - [ ] Exchange on-premise vía EWS (opcional, evaluar demanda)
 
 ## Fase 5 — Seguridad y empresa
 - [ ] 2FA (TOTP) para usuarios de la app
-- [ ] PGP (openpgp.js) y S/MIME: firmar, cifrar, verificar
+- [ ] PGP y S/MIME: firmar, cifrar, verificar
 - [ ] Panel de administración: usuarios, cuotas, estado de workers, logs
 - [ ] Multi-organización (varios clientes de Soluciones RV en una instalación) con marca blanca
-- [ ] Backups programados de Postgres a S3/rclone
+- [ ] (Movido a H2) Backups programados de Postgres a S3/rclone
 
 ## Fase 6 — IA y extras
 - [ ] Resumir correos e hilos, redactar respuestas, traducir (proveedor LLM configurable)
 - [ ] Chat (XMPP/Matrix) — evaluar
-- [ ] App de escritorio envolviendo la PWA (Tauri) si hace falta integración con el SO
+- [ ] (Movido a C2) App de escritorio con Tauri

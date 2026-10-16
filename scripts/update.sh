@@ -3,6 +3,7 @@
 # Hace respaldo antes, reconstruye y reinicia. Las migraciones se aplican solas.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if command -v rvmail >/dev/null 2>&1; then exec rvmail update --dir "$PWD" "$@"; fi
 
 echo "➜ Respaldo previo…"
 ./scripts/backup.sh
@@ -10,8 +11,14 @@ echo "➜ Respaldo previo…"
 echo "➜ Descargando cambios…"
 git pull --ff-only
 
-echo "➜ Reconstruyendo…"
-docker compose build --pull
+PREFIX="$(grep -E '^IMAGE_PREFIX=' .env | cut -d= -f2- || true)"
+if [[ -z "$PREFIX" || "$PREFIX" == "rvmail" ]]; then
+  echo "➜ Reconstruyendo…"
+  docker compose build --pull
+else
+  echo "➜ Descargando imágenes nuevas…"
+  docker compose pull
+fi
 docker compose up -d --remove-orphans
 
 PORT="$(grep -E '^HTTP_PORT=' .env | cut -d= -f2- || echo 8088)"
@@ -23,5 +30,5 @@ for _ in $(seq 1 40); do
   fi
   sleep 3
 done
-echo "✘ La app no responde tras actualizar. Revisa: docker compose logs api" >&2
+echo "✘ La app no responde tras actualizar. Revisa: docker compose logs app worker" >&2
 exit 1

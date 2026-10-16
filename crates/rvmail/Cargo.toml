@@ -1,0 +1,46 @@
+[package]
+name = "rvmail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = { version = "0.5", features = ["std"] }
+async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
+async-stream = "0.3.6"
+axum = { version = "0.8.9", features = ["macros"] }
+axum-extra = { version = "0.12.6", features = ["cookie", "typed-header"] }
+base64 = "0.22"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+dialoguer = { version = "0.12.0", default-features = false, features = ["password"] }
+futures = "0.3.34"
+hex = "0.4.3"
+hickory-resolver = { version = "0.26.3", features = ["tokio"] }
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "webpki-roots", "hostname", "pool"] }
+mail-parser = "0.11.9"
+md-5 = "0.11.0"
+rand = "0.8"
+redis = { version = "1.7.1", features = ["tokio-comp", "aio"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "form", "rustls-no-provider", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rvmail-core = { version = "0.2.0", path = "../rvmail-core" }
+rvmail-types = { version = "0.2.0", path = "../rvmail-types", features = ["sqlx"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+thiserror = "2.0.21"
+time = "0.3.55"
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["cors", "fs", "compression-gzip", "compression-zstd", "set-header", "trace", "timeout"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.28.0", features = ["v4"] }
+webpki-roots = "1.0.9"

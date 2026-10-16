@@ -12,8 +12,9 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Account, api, Folder, Special, User } from '../api';
+import { setUnread } from '../native';
 import type { Selection } from './MailApp';
 
 const UNIFIED: Array<{ special: Special; label: string; icon: ReactNode; use: string }> = [
@@ -33,14 +34,27 @@ type Props = {
   onAddAccount: () => void;
   onEditAccount: (id: string) => void;
   onLogout: () => void;
+  onSettings: () => void;
 };
 
-export function Sidebar({ user, accounts, selection, onSelect, onCompose, onAddAccount, onEditAccount, onLogout }: Props) {
+export function Sidebar({
+  user,
+  accounts,
+  selection,
+  onSelect,
+  onCompose,
+  onAddAccount,
+  onEditAccount,
+  onLogout,
+  onSettings,
+}: Props) {
   const folders = useQuery({ queryKey: ['folders'], queryFn: api.folders, enabled: accounts.length > 0 });
   const all = folders.data ?? [];
 
-  const unreadFor = (use: string) =>
-    all.filter((f) => f.specialUse === use).reduce((n, f) => n + f.unreadCount, 0);
+  const unreadFor = (use: string) => all.filter((f) => f.specialUse === use).reduce((n, f) => n + f.unreadCount, 0);
+  const inboxUnread = unreadFor('\\Inbox');
+  // Contador en la bandeja del sistema (app de escritorio)
+  useEffect(() => setUnread(inboxUnread), [inboxUnread]);
 
   const isUnified = (s: Special) => selection.kind === 'unified' && selection.special === s && !selection.accountId;
 
@@ -86,9 +100,14 @@ export function Sidebar({ user, accounts, selection, onSelect, onCompose, onAddA
           <p className="truncate font-medium">{user.name}</p>
           <p className="truncate text-slate-500">{user.email}</p>
         </div>
-        <button className="btn-ghost" onClick={onLogout} aria-label="Cerrar sesión" title="Cerrar sesión">
-          <LogOut size={16} />
-        </button>
+        <div className="flex shrink-0">
+          <button className="btn-ghost" onClick={onSettings} aria-label="Configuración" title="Configuración">
+            <Settings size={16} />
+          </button>
+          <button className="btn-ghost" onClick={onLogout} aria-label="Cerrar sesión" title="Cerrar sesión">
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );

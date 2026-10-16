@@ -17,11 +17,12 @@ dev-reset: ## Borra los datos de desarrollo y vuelve a empezar
 	$(DEV) up -d --wait
 	pnpm db:migrate
 
-dev: ## Corre api, worker y web con recarga en caliente
-	pnpm dev
+dev: ## Corre api y worker (Rust) y la web (Vite) con recarga
+	./scripts/dev.sh
 
-check: ## Typecheck + build de todo
+check: ## Typecheck + build de todo (TypeScript y Rust)
 	pnpm typecheck && pnpm build
+	cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
 ## ---------- Producción (en el VPS)
 install: ## Instalador interactivo
@@ -36,8 +37,8 @@ down: ## Detiene la app (los datos se conservan)
 ps: ## Estado de los contenedores
 	docker compose ps
 
-logs: ## Logs en vivo de api, worker y web
-	docker compose logs -f --tail=100 api worker web
+logs: ## Logs en vivo de la app y el worker
+	docker compose logs -f --tail=100 app worker
 
 update: ## Respaldo + actualización + reinicio
 	./scripts/update.sh
@@ -50,7 +51,8 @@ scale-workers: ## Escala sincronizadores: make scale-workers N=3
 
 prod-config: ## Valida el docker-compose de producción con un .env de ejemplo
 	@printf 'POSTGRES_PASSWORD=x\nREDIS_PASSWORD=x\nJWT_SECRET=x\nMASTER_KEY=x\n' > .env.ci
-	@docker compose --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.yml OK"; \
+	@docker compose --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.yml OK" && \
+	  docker compose -f docker-compose.yml -f docker-compose.ha.yml --env-file .env.example --env-file .env.ci config --quiet && echo "docker-compose.ha.yml OK"; \
 	  st=$$?; rm -f .env.ci; exit $$st
 	@docker compose -f docker-compose.dev.yml config --quiet && echo "docker-compose.dev.yml OK"
 

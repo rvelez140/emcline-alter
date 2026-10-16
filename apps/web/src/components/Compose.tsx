@@ -8,6 +8,8 @@ export type ComposeDraft = {
   to?: string;
   subject?: string;
   html?: string;
+  /** Texto inicial (p. ej. de un enlace mailto:) */
+  body?: string;
   inReplyToMessageId?: string;
 };
 
@@ -15,7 +17,15 @@ export type ComposeDraft = {
  * Redacción básica. El editor enriquecido (TipTap), adjuntos y borradores
  * están en el roadmap (Fase 1).
  */
-export function Compose({ accounts, draft, onClose }: { accounts: Account[]; draft: ComposeDraft; onClose: () => void }) {
+export function Compose({
+  accounts,
+  draft,
+  onClose,
+}: {
+  accounts: Account[];
+  draft: ComposeDraft;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [accountId, setAccountId] = useState(draft.accountId || accounts[0]?.id || '');
   const [to, setTo] = useState(draft.to ?? '');
@@ -23,7 +33,7 @@ export function Compose({ accounts, draft, onClose }: { accounts: Account[]; dra
   const [bcc, setBcc] = useState('');
   const [showCc, setShowCc] = useState(false);
   const [subject, setSubject] = useState(draft.subject ?? '');
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(draft.body ?? '');
 
   const send = useMutation({
     mutationFn: () =>
@@ -64,7 +74,12 @@ export function Compose({ accounts, draft, onClose }: { accounts: Account[]; dra
           </Row>
           <Row label="Para">
             <div className="flex gap-2">
-              <input className="input" value={to} onChange={(e) => setTo(e.target.value)} placeholder="correo@ejemplo.com" />
+              <input
+                className="input"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="correo@ejemplo.com"
+              />
               {!showCc && (
                 <button className="btn-ghost text-xs" onClick={() => setShowCc(true)}>
                   CC/CCO

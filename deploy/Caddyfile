@@ -5,13 +5,13 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# SSE: sin buffering
+	# Tiempo real (SSE): sin buffering
 	@events path /api/events
-	reverse_proxy @events web:80 {
+	reverse_proxy @events app:3000 {
 		flush_interval -1
 	}
 
-	reverse_proxy web:80
+	reverse_proxy app:3000
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

@@ -1,18 +1,24 @@
 {
   "name": "rvmail",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "RV Mail — cliente de correo multi-cuenta autoalojable (Soluciones RV)",
+  "description": "RV Mail — correo multi-cuenta autoalojable (Soluciones RV). Backend en Rust (crates/), web en apps/web.",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm -r run build",
-    "dev": "pnpm --filter @rvmail/shared --filter @rvmail/db run build && pnpm -r --parallel --filter \"./apps/**\" run dev",
-    "typecheck": "pnpm -r run typecheck",
-    "db:generate": "pnpm --filter @rvmail/db run generate",
-    "db:migrate": "pnpm --filter @rvmail/db run migrate",
-    "lint": "pnpm -r run typecheck"
+    "dev": "./scripts/dev.sh",
+    "dev:web": "pnpm --filter @rvmail/web dev",
+    "desktop": "pnpm --filter @rvmail/desktop dev",
+    "build": "pnpm --filter @rvmail/web build",
+    "build:rs": "cd apps/web-rs && trunk build --release && rm -rf ../web/dist/next && cp -r dist ../web/dist/next",
+    "typecheck": "pnpm --filter @rvmail/web typecheck",
+    "lint": "pnpm --filter @rvmail/web typecheck && prettier --check \"apps/web/src/**/*.{ts,tsx,css}\"",
+    "db:migrate": "cargo run -q -p rvmail -- migrate",
+    "format": "prettier --write \"apps/web/src/**/*.{ts,tsx,css}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0"
   }
 }

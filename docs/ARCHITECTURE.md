@@ -12,52 +12,66 @@
 
 ## Servicios
 
+Un solo binario Rust, `rvmail`, en una sola imagen (amd64/arm64), corre como
+dos servicios: `app` (`rvmail api`) y `worker` (`rvmail worker`). Ver `docs/RUST.md`.
+
 ```
              ┌──────────────┐
  Internet ──▶│ caddy (opc.) │  TLS automático (modo caddy)
              └──────┬───────┘   o aaPanel/nginx (modo external)
                     ▼
-             ┌──────────────┐
-             │ web (nginx)  │  PWA estática + proxy /api → api:3000
-             └──────┬───────┘  (SSE sin buffering)
-                    ▼
-             ┌──────────────┐        ┌──────────────┐
-             │ api (NestJS) │◀──────▶│ redis        │ pub/sub eventos, caché cuerpos,
-             └──────┬───────┘        └──────▲───────┘ leases de cuentas
-                    │                       │
-                    ▼                       │
-             ┌──────────────┐        ┌──────┴───────┐
-             │ postgres     │◀──────▶│ worker (xN)  │ IMAP IDLE por cuenta
-             └──────────────┘        └──────┬───────┘
+             ┌────────────────────┐        ┌──────────────┐
+ Agentes IA ▶│ app (rvmail api)   │◀──────▶│ redis        │ pub/sub eventos, caché cuerpos,
+   (MCP)     │ REST·SSE·MCP·PWA   │        └──────▲───────┘ leases, límites
+             └──────┬─────────┬───┘               │
+                    │         └──▶ API de aaPanel (Mail Server del mismo VPS, opcional)
+                    ▼                             │
+             ┌──────────────┐        ┌────────────┴─────────┐
+             │ postgres     │◀──────▶│ worker (rvmail, xN)  │ IMAP IDLE por cuenta
+             └──────────────┘        └──────┬───────────────┘
                                             ▼
                                Servidores IMAP/SMTP de cada cuenta
-                               (Stalwart propio, Gmail, M365, cPanel…)
+                       (Mail Server propio, Gmail, M365, Yahoo, cPanel…)
 ```
 
-### api
-- Auth de usuarios de la app: contraseña con argon2id, JWT en cookie httpOnly
-  (`SameSite=Lax`, `Secure` en producción). Primer usuario registrado = admin;
-  después el registro queda cerrado salvo `ALLOW_SIGNUP=true`.
-- CRUD de cuentas de correo, con prueba de conexión IMAP+SMTP antes de guardar.
-- Lectura de mensajes desde Postgres (encabezados, snippet, flags).
-- Cuerpo completo bajo demanda: conexión IMAP corta → mailparser → caché en
-  Redis 1 h.
-- Envío: nodemailer con el SMTP de la cuenta + `APPEND` a Enviados.
-- Acciones (leído, destacado, mover, borrar): se aplican en IMAP y en BD.
-- `GET /api/events` (SSE): reenvía al navegador los eventos que publica el
-  worker en Redis, filtrados por usuario.
+### app (`rvmail api`, axum)
+- Auth de usuarios: argon2id, JWT HS256 en cookie httpOnly (`SameSite=Lax`,
+  `Secure` en producción). Primer usuario = admin; después el registro queda
+  cerrado salvo `ALLOW_SIGNUP=true`. Buzones alojados entran con su contraseña;
+  SSO con Google, Microsoft y Yahoo (OpenID Connect).
+- Tokens de API `rvm_…` con ámbitos (`mail:read|draft|send|modify`), por cuenta
+  y con caducidad; servidor MCP en `POST /api/mcp`.
+- CRUD de cuentas con prueba de conexión IMAP+SMTP antes de guardar.
+- Cuerpo completo bajo demanda: conexión IMAP corta → mail-parser → caché en
+  Redis 1 h. Envío con lettre (SMTP de la cuenta, XOAUTH2 si es OAuth) +
+  `APPEND` a Enviados.
+- `GET /api/events` (SSE): una suscripción Redis por proceso, repartida en
+  memoria a cada conexión del usuario.
+- Sirve la PWA compilada (`WEB_DIR`) con las cabeceras de seguridad (CSP, etc.).
+- Migraciones SQL embebidas (sqlx) al arrancar.
 
-### worker
+### worker (`rvmail worker`)
 - Cada 30 s revisa cuentas activas e intenta tomar el **lease** de cada una
-  (`SET key NX PX`). Si lo obtiene, abre sesión y la mantiene renovando el lease.
-- Por cuenta: lista carpetas, sincroniza encabezados de los últimos
-  `SYNC_DAYS` días, luego IDLE en INBOX; cada `SYNC_INTERVAL` repasa el resto
-  de carpetas con UID > último conocido.
-- Errores de autenticación → marca la cuenta `auth_error` y deja de reintentar
-  hasta que el usuario corrija la contraseña. Errores de red → backoff
-  exponencial (máx. 5 min).
-- Publica `message.new`, `message.updated`, `account.status` en el canal
-  Redis `rvmail:events:<userId>`.
+  (`SET key NX PX`); cada cuenta corre en su propia tarea tokio.
+- Por cuenta: lista carpetas; por cada una pide `STATUS` (UIDNEXT, MESSAGES,
+  UNSEEN y HIGHESTMODSEQ con CONDSTORE) y **salta las que no cambiaron**. En las
+  que cambiaron: descarga nuevos (solo cabeceras + parte de texto para la vista
+  previa, nunca adjuntos), borra los que desaparecieron y actualiza marcas.
+  Después IDLE en INBOX (aviso inmediato) y repaso cada `SYNC_INTERVAL_SEC`.
+- Errores de autenticación → `auth_error` sin reintentos hasta que el usuario
+  corrija la contraseña. Errores de red → backoff exponencial (máx. 5 min).
+- Publica `message.new`, `message.updated`, `folder.updated`, `account.status`
+  en `rvmail:events:<userId>`. Healthcheck por archivo de latido.
+
+### Cuentas JMAP (`protocol = jmap`)
+- `crates/rvmail/src/jmap/`: cliente JMAP (RFC 8620/8621): sesión, `Mailbox/get`,
+  `Email/query|get|set`, `EmailSubmission/set` y push por EventSource.
+- El worker (`worker/session_jmap.rs`) sincroniza igual que con IMAP pero por
+  ids JMAP: `folders.path` guarda el id del buzón y `messages.remote_id` el del
+  correo (`uid` es un hash estable). La API (`api/mail_jmap.rs`) usa JMAP para
+  leer, marcar, mover, borradores y enviar.
+- `api/discover.rs`: autodetección (servidor integrado → `/.well-known/jmap` →
+  autoconfig/ISPDB → MX).
 
 ### web (PWA)
 - Vite + React 19 + Tailwind 4 + vite-plugin-pwa (service worker, manifest).
@@ -65,6 +79,17 @@
   navegación por pantallas en móvil.
 - Bandeja unificada por defecto; color por cuenta.
 - HTML de mensajes saneado (DOMPurify) dentro de `<iframe sandbox>`.
+
+### Servidor de correo integrado y agentes de IA
+
+- `crates/rvmail/src/api/mailserver.rs`: enum `Provider` con adaptadores
+  para el Mail Server de aaPanel (API firmada `request_time`/`request_token`)
+  y para Stalwart (`api/stalwart.rs`, JMAP de gestión `urn:stalwart:jmap`).
+  Los buzones alojados se conectan como cuentas normales y el login acepta las
+  credenciales del buzón (verificadas por IMAP). Ver `docs/MAILSERVER.md`.
+- `crates/rvmail/src/api/mcp.rs`: servidor MCP sin estado (Streamable HTTP, `POST /api/mcp`)
+  autenticado con tokens `rvm_…` (tabla `api_tokens`, solo hash SHA-256).
+  Comparte `api/mail.rs` con la API REST. Ver `docs/AI-AGENT.md`.
 
 ## Modelo de datos (resumen)
 

@@ -12,9 +12,7 @@ export function App() {
   });
 
   if (setup.isLoading || me.isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-500">Cargando RV Mail…</div>
-    );
+    return <div className="flex h-full items-center justify-center text-sm text-slate-500">Cargando RV Mail…</div>;
   }
   if (setup.isError) {
     return (
@@ -23,6 +21,14 @@ export function App() {
       </div>
     );
   }
-  if (!me.data) return <AuthScreen mode={setup.data?.needsSetup ? 'setup' : 'login'} />;
+  if (!me.data) {
+    return (
+      <AuthScreen
+        mode={setup.data?.needsSetup ? 'setup' : 'login'}
+        mailboxLogin={setup.data?.mailboxLogin}
+        sso={setup.data?.sso}
+      />
+    );
+  }
   return <MailApp user={me.data} />;
 }

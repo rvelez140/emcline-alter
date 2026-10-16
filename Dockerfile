@@ -1,58 +1,79 @@
 # syntax=docker/dockerfile:1.7
-# Imagen única multi-target: api, worker y web.
-#   docker build --target api    -t rvmail-api .
-#   docker build --target worker -t rvmail-worker .
-#   docker build --target web    -t rvmail-web .
+# Imagen única `rvmail`: binario Rust (api + worker + utilidades) + web compilada.
+#   docker build --target rvmail -t rvmail .
+# El binario se compila de forma CRUZADA (sin emulación QEMU) para amd64 y
+# arm64 (Oracle Ampere A1, Raspberry Pi 4/5, Graviton…); la web es la misma
+# para todas las arquitecturas, así que se compila una sola vez.
 
-ARG NODE_VERSION=22
-
-# ---------------------------------------------------------------- base
-FROM node:${NODE_VERSION}-bookworm-slim AS base
+# ---------------------------------------------------------------- web (PWA)
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web-build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
 WORKDIR /repo
-
-# ---------------------------------------------------------------- build
-FROM base AS build
-# argon2 compila binario nativo si no hay prebuild
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-COPY apps/api/package.json apps/api/
-COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/
-COPY packages/db/package.json packages/db/
-COPY packages/shared/package.json packages/shared/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-COPY . .
-ARG APP_VERSION=dev
-RUN pnpm -r run build
-RUN pnpm --filter @rvmail/api deploy --prod /out/api \
- && pnpm --filter @rvmail/worker deploy --prod /out/worker
+COPY apps/desktop/package.json apps/desktop/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @rvmail/web
+COPY apps/web apps/web
+RUN pnpm --filter @rvmail/web build
 
-# ---------------------------------------------------------------- api
-FROM node:${NODE_VERSION}-bookworm-slim AS api
-ENV NODE_ENV=production
+# ---------------------------------------------------------------- cliente web en Rust (Leptos/WASM, fase C3)
+# Se sirve en /next/ junto a la PWA. WebAssembly es igual en todas las arquitecturas.
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS next-build
+RUN rustup target add wasm32-unknown-unknown
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
+    cargo install trunk --version 0.21.14 --locked
+WORKDIR /src
+COPY crates/rvmail-types crates/rvmail-types
+COPY apps/web-rs apps/web-rs
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
+    --mount=type=cache,target=/src/apps/web-rs/target,id=cargo-target-wasm \
+    cd apps/web-rs && trunk build --release
+
+# ---------------------------------------------------------------- rust (compilación cruzada)
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS rust-build
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      arm64) echo aarch64-unknown-linux-gnu >/rust-target; \
+             apt-get update && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+             && rm -rf /var/lib/apt/lists/* ;; \
+      amd64) echo x86_64-unknown-linux-gnu >/rust-target; \
+             if [ "$(uname -m)" != x86_64 ]; then apt-get update && apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu libc6-dev-amd64-cross && rm -rf /var/lib/apt/lists/*; fi ;; \
+      *) echo "arquitectura no soportada: $TARGETARCH" && exit 1 ;; \
+    esac \
+ && rustup target add "$(cat /rust-target)"
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+# El CLI (`rvmail install`) incluye los archivos de despliegue
+COPY docker-compose.yml docker-compose.ha.yml .env.example ./
+COPY deploy deploy
 ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
-WORKDIR /app
-COPY --from=build --chown=node:node /out/api ./
-USER node
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
+    --mount=type=cache,target=/src/target,id=cargo-target-$TARGETARCH \
+    T="$(cat /rust-target)"; \
+    if [ "$TARGETARCH" = amd64 ] && [ "$(uname -m)" = x86_64 ]; then unset CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER CC_x86_64_unknown_linux_gnu; fi; \
+    cargo build --release --locked --target "$T" -p rvmail \
+ && cp "target/$T/release/rvmail" /rvmail
+
+# ---------------------------------------------------------------- imagen final
+# distroless/cc: glibc + certificados, sin shell ni gestor de paquetes
+FROM gcr.io/distroless/cc-debian12:nonroot AS rvmail
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION} \
+    RVMAIL_ENV=production \
+    WEB_DIR=/app/web \
+    WORKER_HEARTBEAT_FILE=/tmp/rvmail-worker.heartbeat
+COPY --from=rust-build /rvmail /usr/local/bin/rvmail
+COPY --from=web-build /repo/apps/web/dist /app/web
+COPY --from=next-build /src/apps/web-rs/dist /app/web/next
 EXPOSE 3000
+# Por defecto comprueba la API; el servicio worker lo sobrescribe en compose
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "dist/main.js"]
-
-# ---------------------------------------------------------------- worker
-FROM node:${NODE_VERSION}-bookworm-slim AS worker
-ENV NODE_ENV=production
-WORKDIR /app
-COPY --from=build --chown=node:node /out/worker ./
-USER node
-CMD ["node", "dist/main.js"]
-
-# ---------------------------------------------------------------- web
-FROM nginx:1.27-alpine AS web
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
-EXPOSE 80
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD wget -qO- http://127.0.0.1/healthz || exit 1
+  CMD ["/usr/local/bin/rvmail", "healthcheck", "api"]
+ENTRYPOINT ["/usr/local/bin/rvmail"]
+CMD ["api"]

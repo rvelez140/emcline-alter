@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local",
+  "description": "Pantalla local de conexión al servidor",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-open-server",
+    "allow-forget-server",
+    "allow-notify",
+    "allow-set-unread",
+    "allow-sso-login"
+  ]
+}
